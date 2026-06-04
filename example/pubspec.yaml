@@ -1,0 +1,19 @@
+name: apple_spatial_capture_example
+description: Example app for the apple_spatial_capture Flutter plugin.
+publish_to: none
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.9.0 <4.0.0"
+  flutter: ">=3.41.0"
+
+dependencies:
+  apple_spatial_capture:
+    path: ..
+  flutter:
+    sdk: flutter
+  image_picker: ^1.2.0
+
+flutter:
+  uses-material-design: true

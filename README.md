@@ -26,7 +26,7 @@ If your app is outside this repository, point the path at the package location:
 ```yaml
 dependencies:
   apple_spatial_capture:
-    path: ../mappe-mobile/packages/apple_spatial_capture
+    path: ../<app_package>/packages/apple_spatial_capture
 ```
 
 Then fetch dependencies:
@@ -40,6 +40,21 @@ Import the package anywhere you need capture or preview APIs:
 ```dart
 import 'package:apple_spatial_capture/apple_spatial_capture.dart';
 ```
+
+## Example app
+
+A complete Flutter example app is available in `example/`.
+
+```sh
+cd packages/apple_spatial_capture/example
+flutter create --platforms=ios --project-name apple_spatial_capture_example .
+flutter pub get
+flutter run
+```
+
+The example includes support checks, all capture entry points,
+image-based photogrammetry options, progress events, and local/remote preview
+forms.
 
 ## iOS host app requirements
 
