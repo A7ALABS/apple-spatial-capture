@@ -1,0 +1,18 @@
+name: apple_spatial_capture
+description: Flutter plugin exposing Apple RoomPlan, photogrammetry Object Capture, and LiDAR mesh scanning on iOS.
+version: 0.1.0
+homepage: https://example.com/apple_spatial_capture
+
+environment:
+  sdk: '>=3.9.0 <4.0.0'
+  flutter: '>=3.41.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: AppleSpatialCapturePlugin
