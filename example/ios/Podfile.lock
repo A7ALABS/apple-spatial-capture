@@ -1,0 +1,35 @@
+PODS:
+  - apple_spatial_capture (0.1.0):
+    - Flutter
+    - GLTFSceneKit (~> 0.3)
+  - Flutter (1.0.0)
+  - GLTFSceneKit (0.3.0)
+  - image_picker_ios (0.0.1):
+    - Flutter
+
+DEPENDENCIES:
+  - apple_spatial_capture (from `.symlinks/plugins/apple_spatial_capture/ios`)
+  - Flutter (from `Flutter`)
+  - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
+
+SPEC REPOS:
+  trunk:
+    - GLTFSceneKit
+
+EXTERNAL SOURCES:
+  apple_spatial_capture:
+    :path: ".symlinks/plugins/apple_spatial_capture/ios"
+  Flutter:
+    :path: Flutter
+  image_picker_ios:
+    :path: ".symlinks/plugins/image_picker_ios/ios"
+
+SPEC CHECKSUMS:
+  apple_spatial_capture: da1ffd99bb0017e27f3b64f8fb774e2b1af7ec81
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  GLTFSceneKit: d1b437c514ba2aed5555afb0fddd64e030612d57
+  image_picker_ios: e0ece4aa2a75771a7de3fa735d26d90817041326
+
+PODFILE CHECKSUM: e30f02f9d1c72c47bb6344a0a748c9d268180865
+
+COCOAPODS: 1.16.2
