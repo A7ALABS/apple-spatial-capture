@@ -201,16 +201,27 @@ import RoomPlan
             if #available(iOS 17.0, *) {
                 var hostingVC: UIHostingController<ObjectCaptureFlowView>?
                 let view = ObjectCaptureFlowView(outputDirectory: outputDir) { usdzPath, captureError in
-                    if let path = usdzPath, !path.isEmpty {
-                        result(path)
-                    } else if let error = captureError, !error.isEmpty {
-                        result(FlutterError(code: "CAPTURE_FAILED", message: error, details: nil))
-                    } else {
-                        result(nil)
-                    }
                     DispatchQueue.main.async {
-                        hostingVC?.dismiss(animated: true)
-                        hostingVC = nil
+                        let currentHostingVC = hostingVC
+                        let finish: () -> Void = {
+                            if let path = usdzPath, !path.isEmpty {
+                                result(path)
+                            } else if let error = captureError, !error.isEmpty {
+                                result(FlutterError(code: "CAPTURE_FAILED", message: error, details: nil))
+                            } else {
+                                result(nil)
+                            }
+                            hostingVC = nil
+                        }
+
+                        guard let currentHostingVC = currentHostingVC else {
+                            finish()
+                            return
+                        }
+
+                        currentHostingVC.dismiss(animated: true) {
+                            finish()
+                        }
                     }
                 }
                 let vc = UIHostingController(rootView: view)
@@ -1029,10 +1040,21 @@ import RoomPlan
             if #available(iOS 14.0, *) {
                 var hostingVC: UIHostingController<LiDARMeshCaptureView>?
                 let view = LiDARMeshCaptureView { usdzPath in
-                    result(usdzPath)
                     DispatchQueue.main.async {
-                        hostingVC?.dismiss(animated: true)
-                        hostingVC = nil
+                        let currentHostingVC = hostingVC
+                        let finish: () -> Void = {
+                            result(usdzPath)
+                            hostingVC = nil
+                        }
+
+                        guard let currentHostingVC = currentHostingVC else {
+                            finish()
+                            return
+                        }
+
+                        currentHostingVC.dismiss(animated: true) {
+                            finish()
+                        }
                     }
                 }
                 let vc = UIHostingController(rootView: view)
@@ -1070,10 +1092,21 @@ import RoomPlan
             if #available(iOS 16.0, *) {
                 var hostingVC: UIHostingController<RoomPlanCaptureView>?
                 let view = RoomPlanCaptureView { usdzPath in
-                    result(usdzPath)
                     DispatchQueue.main.async {
-                        hostingVC?.dismiss(animated: true)
-                        hostingVC = nil
+                        let currentHostingVC = hostingVC
+                        let finish: () -> Void = {
+                            result(usdzPath)
+                            hostingVC = nil
+                        }
+
+                        guard let currentHostingVC = currentHostingVC else {
+                            finish()
+                            return
+                        }
+
+                        currentHostingVC.dismiss(animated: true) {
+                            finish()
+                        }
                     }
                 }
                 let vc = UIHostingController(rootView: view)
