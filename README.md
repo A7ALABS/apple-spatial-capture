@@ -100,8 +100,8 @@ forms.
     <th>RoomPlan scan</th>
   </tr>
   <tr>
-    <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/object-capture/results/object-capture-result.png" alt="Generated Object Capture result" width="180"></td>
-    <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/object-capture/results/object-capture-result-2.png" alt="Object Capture result preview" width="180"></td>
+    <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/object-capture/results/object-capture-result-readme.png" alt="Generated Object Capture result" width="180"></td>
+    <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/object-capture/results/object-capture-result-2-readme.png" alt="Object Capture result preview" width="180"></td>
     <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/lidar/lidar.png" alt="LiDAR scan screen" width="180"></td>
     <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/roomplan/roomplan.png" alt="RoomPlan scan screen" width="180"></td>
   </tr>
