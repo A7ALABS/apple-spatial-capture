@@ -1,7 +1,37 @@
 name: apple_spatial_capture
 description: Flutter plugin exposing Apple RoomPlan, photogrammetry Object Capture, and LiDAR mesh scanning on iOS.
 version: 0.1.0
-homepage: https://example.com/apple_spatial_capture
+homepage: https://github.com/A7ALABS/apple-spatial-capture
+repository: https://github.com/A7ALABS/apple-spatial-capture
+issue_tracker: https://github.com/A7ALABS/apple-spatial-capture/issues
+
+platforms:
+  ios:
+
+topics:
+  - flutter-plugin
+  - ios
+  - lidar
+  - photogrammetry
+  - roomplan
+
+screenshots:
+  - description: Capture methods available in the example app.
+    path: 'screenshots/main screens/capture methods.png'
+  - description: Photo-based 3D reconstruction options in the example app.
+    path: 'screenshots/main screens/Photo to 3d with photogrammtry.png'
+  - description: Native model preview options for local and remote 3D files.
+    path: 'screenshots/main screens/Preview models.png'
+  - description: RoomPlan capture screen on a supported iOS device.
+    path: screenshots/roomplan/Roomplan.png
+  - description: LiDAR mesh capture screen on a supported iOS device.
+    path: screenshots/lidar/Lidar.png
+  - description: Object Capture start screen.
+    path: 'screenshots/object capture/Object capture 1.png'
+  - description: Object Capture guidance screen.
+    path: 'screenshots/object capture/Object capture 3.png'
+  - description: Object Capture reconstruction feedback screen.
+    path: 'screenshots/object capture/Reconstruction feedback screen.png'
 
 environment:
   sdk: '>=3.9.0 <4.0.0'
