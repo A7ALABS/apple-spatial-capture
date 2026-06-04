@@ -17,21 +17,21 @@ topics:
 
 screenshots:
   - description: Capture methods available in the example app.
-    path: 'screenshots/main screens/capture methods.png'
+    path: screenshots/main-screens/capture-methods.png
   - description: Photo-based 3D reconstruction options in the example app.
-    path: 'screenshots/main screens/Photo to 3d with photogrammtry.png'
+    path: screenshots/main-screens/photo-to-3d-photogrammetry.png
   - description: Native model preview options for local and remote 3D files.
-    path: 'screenshots/main screens/Preview models.png'
+    path: screenshots/main-screens/preview-models.png
   - description: RoomPlan capture screen on a supported iOS device.
-    path: screenshots/roomplan/Roomplan.png
+    path: screenshots/roomplan/roomplan.png
   - description: LiDAR mesh capture screen on a supported iOS device.
-    path: screenshots/lidar/Lidar.png
+    path: screenshots/lidar/lidar.png
   - description: Object Capture start screen.
-    path: 'screenshots/object capture/Object capture 1.png'
+    path: screenshots/object-capture/object-capture-1.png
   - description: Object Capture guidance screen.
-    path: 'screenshots/object capture/Object capture 3.png'
+    path: screenshots/object-capture/object-capture-3.png
   - description: Object Capture reconstruction feedback screen.
-    path: 'screenshots/object capture/Reconstruction feedback screen.png'
+    path: screenshots/object-capture/reconstruction-feedback-screen.png
 
 environment:
   sdk: '>=3.9.0 <4.0.0'

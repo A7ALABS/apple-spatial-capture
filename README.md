@@ -67,9 +67,9 @@ forms.
     <th>Model previews</th>
   </tr>
   <tr>
-    <td><img src="screenshots/main%20screens/capture%20methods.png" alt="Capture methods screen" width="220"></td>
-    <td><img src="screenshots/main%20screens/Photo%20to%203d%20with%20photogrammtry.png" alt="Photo to 3D photogrammetry screen" width="220"></td>
-    <td><img src="screenshots/main%20screens/Preview%20models.png" alt="Model preview screen" width="220"></td>
+    <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/main-screens/capture-methods.png" alt="Capture methods screen" width="220"></td>
+    <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/main-screens/photo-to-3d-photogrammetry.png" alt="Photo to 3D photogrammetry screen" width="220"></td>
+    <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/main-screens/preview-models.png" alt="Model preview screen" width="220"></td>
   </tr>
 </table>
 
@@ -83,10 +83,10 @@ forms.
     <th>Reconstruction feedback</th>
   </tr>
   <tr>
-    <td><img src="screenshots/object%20capture/Object%20capture%201.png" alt="Object Capture start screen" width="180"></td>
-    <td><img src="screenshots/object%20capture/Object%20capture%202.png" alt="Object Capture scanning screen" width="180"></td>
-    <td><img src="screenshots/object%20capture/Object%20capture%203.png" alt="Object Capture guidance screen" width="180"></td>
-    <td><img src="screenshots/object%20capture/Reconstruction%20feedback%20screen.png" alt="Object Capture reconstruction feedback screen" width="180"></td>
+    <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/object-capture/object-capture-1.png" alt="Object Capture start screen" width="180"></td>
+    <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/object-capture/object-capture-2.png" alt="Object Capture scanning screen" width="180"></td>
+    <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/object-capture/object-capture-3.png" alt="Object Capture guidance screen" width="180"></td>
+    <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/object-capture/reconstruction-feedback-screen.png" alt="Object Capture reconstruction feedback screen" width="180"></td>
   </tr>
 </table>
 
@@ -100,10 +100,10 @@ forms.
     <th>RoomPlan scan</th>
   </tr>
   <tr>
-    <td><img src="screenshots/object%20capture/results/Object%20capture%20result.png" alt="Generated Object Capture result" width="180"></td>
-    <td><img src="screenshots/object%20capture/results/Object%20capture%20result2.png" alt="Object Capture result preview" width="180"></td>
-    <td><img src="screenshots/lidar/Lidar.png" alt="LiDAR scan screen" width="180"></td>
-    <td><img src="screenshots/roomplan/Roomplan.png" alt="RoomPlan scan screen" width="180"></td>
+    <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/object-capture/results/object-capture-result.png" alt="Generated Object Capture result" width="180"></td>
+    <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/object-capture/results/object-capture-result-2.png" alt="Object Capture result preview" width="180"></td>
+    <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/lidar/lidar.png" alt="LiDAR scan screen" width="180"></td>
+    <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/roomplan/roomplan.png" alt="RoomPlan scan screen" width="180"></td>
   </tr>
 </table>
 
