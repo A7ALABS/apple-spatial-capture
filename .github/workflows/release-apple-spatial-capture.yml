@@ -1,0 +1,167 @@
+name: Release apple_spatial_capture
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version segment to increment when an explicit version is not provided.
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      version:
+        description: Optional explicit version, for example 0.2.0. Overrides bump.
+        required: false
+        type: string
+      changelog_message:
+        description: Changelog bullet for this release.
+        required: false
+        default: Release maintenance updates.
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-apple-spatial-capture
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure release token
+        env:
+          GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+        run: |
+          if [ -z "$GH_RELEASE_TOKEN" ]; then
+            echo "Missing secret: GH_RELEASE_TOKEN"
+            echo "Create a GitHub PAT with Contents read/write permission and save it as GH_RELEASE_TOKEN."
+            exit 1
+          fi
+
+          git remote set-url origin "https://x-access-token:${GH_RELEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --tags
+
+      - name: Bump package version
+        id: bump
+        env:
+          BUMP: ${{ inputs.bump }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+          CHANGELOG_MESSAGE: ${{ inputs.changelog_message }}
+        run: |
+          python3 <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          pubspec_path = Path("pubspec.yaml")
+          readme_path = Path("README.md")
+          changelog_path = Path("CHANGELOG.md")
+
+          pubspec_text = pubspec_path.read_text()
+          version_match = re.search(r"(?m)^version:\s*([^\s#]+)\s*$", pubspec_text)
+          if version_match is None:
+              raise SystemExit("Could not find version in pubspec.yaml")
+
+          current_version = version_match.group(1)
+          requested_version = os.environ["REQUESTED_VERSION"].strip()
+          bump = os.environ["BUMP"]
+
+          if requested_version:
+              next_version = requested_version
+              if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?", next_version):
+                  raise SystemExit(f"Invalid requested version: {next_version}")
+          else:
+              stable_match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?", current_version)
+              if stable_match is None:
+                  raise SystemExit(f"Cannot auto-increment unsupported version: {current_version}")
+
+              major, minor, patch = map(int, stable_match.groups())
+              if bump == "major":
+                  major += 1
+                  minor = 0
+                  patch = 0
+              elif bump == "minor":
+                  minor += 1
+                  patch = 0
+              elif bump == "patch":
+                  patch += 1
+              else:
+                  raise SystemExit(f"Unsupported bump type: {bump}")
+
+              next_version = f"{major}.{minor}.{patch}"
+
+          tag_name = f"apple_spatial_capture-v{next_version}"
+
+          pubspec_path.write_text(
+              re.sub(r"(?m)^version:\s*[^\s#]+\s*$", f"version: {next_version}", pubspec_text)
+          )
+
+          readme_text = readme_path.read_text()
+          readme_path.write_text(
+              re.sub(
+                  r"apple_spatial_capture:\s*\^[0-9A-Za-z.+-]+",
+                  f"apple_spatial_capture: ^{next_version}",
+                  readme_text,
+              )
+          )
+
+          changelog_message = os.environ["CHANGELOG_MESSAGE"].strip() or "Release maintenance updates."
+          changelog_text = changelog_path.read_text() if changelog_path.exists() else ""
+          if not re.search(rf"(?m)^##\s+{re.escape(next_version)}\s*$", changelog_text):
+              changelog_path.write_text(
+                  f"## {next_version}\n\n- {changelog_message}\n\n{changelog_text}".rstrip() + "\n"
+              )
+
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          with output_path.open("a") as output_file:
+              output_file.write(f"version={next_version}\n")
+              output_file.write(f"tag={tag_name}\n")
+          PY
+
+      - name: Fail if tag already exists
+        run: |
+          if git rev-parse "${{ steps.bump.outputs.tag }}" >/dev/null 2>&1; then
+            echo "Tag already exists: ${{ steps.bump.outputs.tag }}"
+            exit 1
+          fi
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.0'
+          channel: stable
+          cache: true
+
+      - name: Validate package
+        run: |
+          flutter pub get
+          flutter pub publish --dry-run
+
+      - name: Commit version bump and create tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add pubspec.yaml README.md CHANGELOG.md
+
+          if git diff --cached --quiet; then
+            echo "No release file changes to commit."
+            exit 1
+          fi
+
+          git commit -m "chore(apple_spatial_capture): release v${{ steps.bump.outputs.version }}"
+          git tag "${{ steps.bump.outputs.tag }}"
+
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          git push origin "${{ steps.bump.outputs.tag }}"

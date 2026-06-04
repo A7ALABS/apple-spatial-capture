@@ -1,0 +1,52 @@
+name: Publish apple_spatial_capture to pub.dev
+
+on:
+  push:
+    tags:
+      - apple_spatial_capture-v*
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-apple-spatial-capture-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pub.dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Dart publishing
+        uses: dart-lang/setup-dart@v1
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.0'
+          channel: stable
+          cache: true
+
+      - name: Verify tag matches pubspec version
+        run: |
+          package_version="$(grep '^version:' pubspec.yaml | awk '{print $2}')"
+          tag_version="${GITHUB_REF_NAME#apple_spatial_capture-v}"
+
+          if [ "$tag_version" != "$package_version" ]; then
+            echo "Tag version ($tag_version) must match pubspec.yaml version ($package_version)."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Validate package
+        run: flutter pub publish --dry-run
+
+      - name: Publish package
+        run: flutter pub publish --force
