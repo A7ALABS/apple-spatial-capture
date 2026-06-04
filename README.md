@@ -13,20 +13,17 @@ The package exposes:
 
 ## Installation
 
-Use the package from this repository:
+Install the published package from pub.dev:
 
-```yaml
-dependencies:
-  apple_spatial_capture:
-    path: packages/apple_spatial_capture
+```sh
+flutter pub add apple_spatial_capture
 ```
 
-If your app is outside this repository, point the path at the package location:
+Or add it manually to your app's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  apple_spatial_capture:
-    path: ../<app_package>/packages/apple_spatial_capture
+  apple_spatial_capture: ^0.1.2
 ```
 
 Then fetch dependencies:
