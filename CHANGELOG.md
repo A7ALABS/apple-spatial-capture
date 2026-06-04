@@ -1,3 +1,12 @@
+## 0.1.4
+
+- Added package-local GitHub Actions workflows for releasing and publishing.
+- Updated package publishing metadata.
+
+## 0.1.3
+
+- Added changelog entries required for pub.dev validation.
+
 ## 0.1.2
 
 - Added package screenshots for pub.dev.
