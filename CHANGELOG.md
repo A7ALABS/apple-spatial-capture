@@ -1,3 +1,11 @@
+## 0.2.0
+
+- Added macOS plugin support for photo reconstruction from existing images.
+- Added macOS support for local and remote model previews.
+- Added a generated macOS example runner with macOS 12.0 deployment target.
+- Added macOS screenshots to README and pub.dev metadata.
+- Documented iPadOS support alongside iOS support.
+
 ## 0.1.4
 
 - Added package-local GitHub Actions workflows for releasing and publishing.

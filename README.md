@@ -1,13 +1,13 @@
 # apple_spatial_capture
 
-Flutter plugin for Apple spatial capture workflows on iOS.
+Flutter plugin for Apple spatial capture workflows on iOS, iPadOS, and macOS.
 
 The package exposes:
 
-- Object Capture camera-guided photogrammetry on supported iOS 17+ devices.
-- Photogrammetry reconstruction from existing image paths on supported iOS 17+ devices.
-- LiDAR mesh scanning on supported iOS 14+ devices.
-- RoomPlan room scanning on supported iOS 16+ devices.
+- Object Capture camera-guided photogrammetry on supported iOS 17+ and iPadOS 17+ devices.
+- Photogrammetry reconstruction from existing image paths on supported iOS 17+, iPadOS 17+, and macOS 12+ devices.
+- LiDAR mesh scanning on supported iOS 14+ and iPadOS 14+ devices.
+- RoomPlan room scanning on supported iOS 16+ and iPadOS 16+ devices.
 - Native previews for local and remote `usdz`, `obj`, `glb`, and `gltf` files.
 - Progress events for image-based photogrammetry jobs.
 
@@ -23,7 +23,7 @@ Or add it manually to your app's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  apple_spatial_capture: ^0.1.4
+  apple_spatial_capture: ^0.2.0
 ```
 
 Then fetch dependencies:
@@ -44,7 +44,7 @@ A complete Flutter example app is available in `example/`.
 
 ```sh
 cd packages/apple_spatial_capture/example
-flutter create --platforms=ios --project-name apple_spatial_capture_example .
+flutter create --platforms=ios,macos --project-name apple_spatial_capture_example .
 flutter pub get
 flutter run
 ```
@@ -67,6 +67,21 @@ forms.
     <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/main-screens/capture-methods.png" alt="Capture methods screen" width="220"></td>
     <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/main-screens/photo-to-3d-photogrammetry.png" alt="Photo to 3D photogrammetry screen" width="220"></td>
     <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/main-screens/preview-models.png" alt="Model preview screen" width="220"></td>
+  </tr>
+</table>
+
+### macOS example
+
+<table>
+  <tr>
+    <th>Capture methods</th>
+    <th>Photo reconstruction</th>
+    <th>Model previews</th>
+  </tr>
+  <tr>
+    <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/macos/Capture%20methods.png" alt="macOS capture methods screen" width="260"></td>
+    <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/macos/3d%20from%20photos%20photogrammetry.png" alt="macOS photo reconstruction screen" width="260"></td>
+    <td><img src="https://raw.githubusercontent.com/A7ALABS/apple-spatial-capture/main/screenshots/macos/preview.png" alt="macOS model preview screen" width="260"></td>
   </tr>
 </table>
 
@@ -104,9 +119,9 @@ forms.
   </tr>
 </table>
 
-## iOS host app requirements
+## Apple host app requirements
 
-Set the iOS deployment target to at least `14.0`.
+Set the iOS deployment target to at least `14.0`. Flutter and CocoaPods use the `ios` target for both iPhone and iPadOS apps.
 
 ```ruby
 # ios/Podfile
@@ -127,7 +142,9 @@ If your app lets the user select photos for photogrammetry, also add:
 <string>Select photos to generate a 3D model.</string>
 ```
 
-The plugin performs runtime support checks, but you should still gate capture UI in Flutter. Apple support depends on both iOS version and device hardware.
+The plugin performs runtime support checks, but you should still gate capture UI in Flutter. Apple support depends on OS version and device hardware.
+
+For macOS, set the deployment target to at least `12.0`. macOS supports reconstruction from existing photos and local/remote model preview. Guided Object Capture, LiDAR scanning, and RoomPlan capture are available only on supported iOS and iPadOS devices.
 
 ## API overview
 
@@ -153,7 +170,7 @@ Public components:
 
 ## Check platform support
 
-Call `supportStatus()` before rendering capture actions. Non-iOS platforms should be gated in app code before using this plugin.
+Call `supportStatus()` before rendering capture actions. Platforms other than iOS, iPadOS, and macOS should be gated in app code before using this plugin.
 
 ```dart
 import 'dart:io';
@@ -179,8 +196,8 @@ class _SpatialSupportPanelState extends State<SpatialSupportPanel> {
   }
 
   Future<void> _loadSupport() async {
-    if (!Platform.isIOS) {
-      setState(() => _error = 'Apple spatial capture is only available on iOS.');
+    if (!Platform.isIOS && !Platform.isMacOS) {
+      setState(() => _error = 'Apple spatial capture is only available on Apple platforms.');
       return;
     }
 
@@ -666,7 +683,8 @@ void main() {
 
 ## Practical notes
 
-- Test capture flows on a physical iOS device. Simulators do not provide LiDAR, Object Capture, or RoomPlan hardware support.
+- Test capture flows on a physical iPhone or iPad. Simulators do not provide LiDAR, Object Capture, or RoomPlan hardware support.
+- On macOS, use `startPhotogrammetryFromImages()` for reconstruction from existing photos.
 - `startPhotogrammetryCapture()`, `startLiDARCapture()`, and `startRoomPlanCapture()` present native full-screen UI.
 - `startPhotogrammetryFromImages()` can take several minutes depending on image count, texture quality, and output format.
 - Returned paths point to temporary app files. Move or upload the model if your app needs to keep it.

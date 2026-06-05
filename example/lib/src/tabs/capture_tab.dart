@@ -13,6 +13,7 @@ class CaptureTab extends StatelessWidget {
     super.key,
     required this.support,
     required this.isWorking,
+    required this.supportsDeviceCapture,
     required this.lastModelPath,
     required this.onStartObjectCapture,
     required this.onStartLiDARCapture,
@@ -22,6 +23,7 @@ class CaptureTab extends StatelessWidget {
 
   final AppleSpatialCaptureSupport? support;
   final bool isWorking;
+  final bool supportsDeviceCapture;
   final String? lastModelPath;
   final VoidCallback onStartObjectCapture;
   final VoidCallback onStartLiDARCapture;
@@ -34,24 +36,24 @@ class CaptureTab extends StatelessWidget {
       children: [
         SectionCard(
           title: 'Device support',
-          subtitle: Platform.isIOS
-              ? 'Runtime checks for this iOS device.'
-              : 'Run on a physical iOS device to use capture APIs.',
+          subtitle: Platform.isIOS || Platform.isMacOS
+              ? 'Runtime checks for this Apple device.'
+              : 'Run on iOS, iPadOS, or macOS to use capture APIs.',
           child: Column(
             children: [
               SupportTile(
-                label: 'Object Capture',
-                minimum: 'iOS 17+',
+                label: 'Photogrammetry',
+                minimum: 'iOS/iPadOS 17+ or macOS 12+',
                 isSupported: support?.photogrammetry,
               ),
               SupportTile(
                 label: 'LiDAR mesh',
-                minimum: 'iOS 14+',
+                minimum: 'iOS/iPadOS 14+',
                 isSupported: support?.lidar,
               ),
               SupportTile(
                 label: 'RoomPlan',
-                minimum: 'iOS 16+',
+                minimum: 'iOS/iPadOS 16+',
                 isSupported: support?.roomPlan,
               ),
             ],
@@ -59,7 +61,9 @@ class CaptureTab extends StatelessWidget {
         ),
         SectionCard(
           title: 'Capture from device',
-          subtitle: 'Start a native full-screen capture flow.',
+          subtitle: supportsDeviceCapture
+              ? 'Start a native full-screen capture flow.'
+              : 'Device capture is available on supported iPhone and iPad devices.',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -67,21 +71,27 @@ class CaptureTab extends StatelessWidget {
                 icon: Icons.view_in_ar_rounded,
                 label: 'Object Capture',
                 description: 'Guided object scan and USDZ reconstruction.',
-                onPressed: isWorking ? null : onStartObjectCapture,
+                onPressed: isWorking || !supportsDeviceCapture
+                    ? null
+                    : onStartObjectCapture,
               ),
               const SizedBox(height: 10),
               ActionButton(
                 icon: Icons.polyline_rounded,
                 label: 'LiDAR mesh',
                 description: 'Fast mesh scan from the LiDAR sensor.',
-                onPressed: isWorking ? null : onStartLiDARCapture,
+                onPressed: isWorking || !supportsDeviceCapture
+                    ? null
+                    : onStartLiDARCapture,
               ),
               const SizedBox(height: 10),
               ActionButton(
                 icon: Icons.meeting_room_rounded,
                 label: 'RoomPlan',
                 description: 'Room-scale capture using Apple RoomPlan.',
-                onPressed: isWorking ? null : onStartRoomPlanCapture,
+                onPressed: isWorking || !supportsDeviceCapture
+                    ? null
+                    : onStartRoomPlanCapture,
               ),
             ],
           ),

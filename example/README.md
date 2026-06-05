@@ -16,19 +16,19 @@ The app demonstrates:
 
 ## Run the example
 
-This plugin is iOS-only. Use a physical iPhone or iPad with supported hardware.
+This plugin supports iOS, iPadOS, and macOS. Use a physical iPhone or iPad for device capture, or a supported Mac for photo reconstruction.
 
 From this directory:
 
 ```sh
-flutter create --platforms=ios --project-name apple_spatial_capture_example .
+flutter create --platforms=ios,macos --project-name apple_spatial_capture_example .
 flutter pub get
 flutter run
 ```
 
 The `flutter create` command adds the generated iOS runner files around the
 checked-in example Dart app. Set the generated iOS deployment target to `14.0`
-or higher.
+or higher, and the generated macOS deployment target to `12.0` or higher.
 
 Add these permission strings to `ios/Runner/Info.plist` after generating the iOS runner:
 
@@ -39,6 +39,8 @@ Add these permission strings to `ios/Runner/Info.plist` after generating the iOS
 <string>Select photos to generate a 3D model.</string>
 ```
 
-Object Capture and photo reconstruction require iOS 17+ with supported
-hardware. RoomPlan requires iOS 16+ with supported hardware. LiDAR mesh scanning
-requires iOS 14+ with LiDAR support.
+Guided Object Capture and iOS/iPadOS photo reconstruction require iOS 17+ or
+iPadOS 17+ with supported hardware. macOS photo reconstruction requires macOS
+12+ with Object Capture support. RoomPlan requires iOS 16+ or iPadOS 16+ with
+supported hardware. LiDAR mesh scanning requires iOS 14+ or iPadOS 14+ with
+LiDAR support.

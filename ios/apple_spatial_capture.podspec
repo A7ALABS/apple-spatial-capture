@@ -3,8 +3,9 @@ Pod::Spec.new do |s|
   s.version          = '0.1.0'
   s.summary          = 'Apple RoomPlan, photogrammetry, and LiDAR capture for Flutter.'
   s.description      = <<-DESC
-A Flutter iOS plugin that exposes Apple Object Capture photogrammetry,
-RoomPlan scanning, LiDAR mesh capture, and native 3D preview helpers.
+A Flutter iOS and iPadOS plugin that exposes Apple Object Capture
+photogrammetry, RoomPlan scanning, LiDAR mesh capture, and native 3D preview
+helpers.
                        DESC
   s.homepage         = 'https://example.com/apple_spatial_capture'
   s.license          = { :file => '../LICENSE' }

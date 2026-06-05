@@ -5,8 +5,9 @@ import 'src/apple_spatial_capture_models.dart';
 
 export 'src/apple_spatial_capture_models.dart';
 
-/// Flutter-facing library for Apple 3D capture features:
-/// RoomPlan, photogrammetry (Object Capture), and LiDAR mesh scanning.
+/// Flutter-facing library for Apple 3D capture and reconstruction features:
+/// RoomPlan, photogrammetry (Object Capture), LiDAR mesh scanning, and macOS
+/// photo-based reconstruction.
 class AppleSpatialCapture {
   AppleSpatialCapture._();
 

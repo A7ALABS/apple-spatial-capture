@@ -64,10 +64,11 @@ class _SpatialCaptureExampleScreenState
   }
 
   Future<void> _loadSupport() async {
-    if (!Platform.isIOS) {
+    if (!_isAppleSpatialPlatform) {
       setState(() {
         _isCheckingSupport = false;
-        _statusMessage = 'This plugin only runs on iOS devices.';
+        _statusMessage =
+            'This plugin runs on iOS, iPadOS, and supported macOS devices.';
       });
       return;
     }
@@ -98,6 +99,12 @@ class _SpatialCaptureExampleScreenState
   }
 
   Future<void> _startGuidedObjectCapture() async {
+    if (!Platform.isIOS) {
+      _setError(
+        'Guided Object Capture requires a supported iPhone or iPad. Use photo reconstruction on macOS.',
+      );
+      return;
+    }
     if (!_ensureSupported(_support?.photogrammetry, 'Object Capture')) return;
 
     await _runModelCapture(
@@ -107,6 +114,10 @@ class _SpatialCaptureExampleScreenState
   }
 
   Future<void> _startLiDARCapture() async {
+    if (!Platform.isIOS) {
+      _setError('LiDAR scanning requires a supported iPhone or iPad.');
+      return;
+    }
     if (!_ensureSupported(_support?.lidar, 'LiDAR scanning')) return;
 
     await _runModelCapture(
@@ -116,6 +127,10 @@ class _SpatialCaptureExampleScreenState
   }
 
   Future<void> _startRoomPlanCapture() async {
+    if (!Platform.isIOS) {
+      _setError('RoomPlan requires a supported iPhone or iPad.');
+      return;
+    }
     if (!_ensureSupported(_support?.roomPlan, 'RoomPlan')) return;
 
     await _runModelCapture(
@@ -307,8 +322,8 @@ class _SpatialCaptureExampleScreenState
   }
 
   bool _ensureSupported(bool? isSupported, String featureName) {
-    if (!Platform.isIOS) {
-      _setError('$featureName requires a physical iOS device.');
+    if (!_isAppleSpatialPlatform) {
+      _setError('$featureName requires iOS, iPadOS, or macOS.');
       return false;
     }
     if (isSupported != true) {
@@ -367,6 +382,8 @@ class _SpatialCaptureExampleScreenState
     return '$fileName.${fileType.value}';
   }
 
+  bool get _isAppleSpatialPlatform => Platform.isIOS || Platform.isMacOS;
+
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -407,6 +424,7 @@ class _SpatialCaptureExampleScreenState
                     CaptureTab(
                       support: _support,
                       isWorking: _isWorking,
+                      supportsDeviceCapture: Platform.isIOS,
                       lastModelPath: _lastModelPath,
                       onStartObjectCapture: _startGuidedObjectCapture,
                       onStartLiDARCapture: _startLiDARCapture,
