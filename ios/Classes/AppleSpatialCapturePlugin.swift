@@ -38,8 +38,6 @@ import RoomPlan
     }
 
     private struct TextureQualityProfile {
-        let maxDimension: CGFloat
-        let jpegQuality: CGFloat
         let label: String
     }
 
@@ -275,23 +273,7 @@ import RoomPlan
             )
         }
 
-        var imagePaths = rawNormalizedPaths
-        let sampledPaths = sampleImagePathsForProcessing(
-            imagePaths: rawNormalizedPaths,
-            textureQuality: options.textureQuality,
-            outputFormat: options.outputFormat
-        )
-        imagePaths = sampledPaths
-
-        if sampledPaths.count < rawNormalizedPaths.count {
-            emitProgress(
-                operationId: operationId,
-                stage: "info",
-                message: "Using \(sampledPaths.count)/\(rawNormalizedPaths.count) photos for faster processing."
-            )
-        }
-
-        guard imagePaths.count >= 3 else {
+        guard rawNormalizedPaths.count >= 3 else {
             result(FlutterError(code: "INSUFFICIENT_IMAGES",
                                 message: "Select at least 3 photos to generate a model.",
                                 details: nil))
@@ -331,14 +313,13 @@ import RoomPlan
                 try FileManager.default.createDirectory(at: modelURL, withIntermediateDirectories: true)
             }
             try copySelectedImagesToInputDirectory(
-                imagePaths: imagePaths,
-                imagesDirectory: imagesDirectory,
-                textureQuality: options.textureQuality
+                imagePaths: rawNormalizedPaths,
+                imagesDirectory: imagesDirectory
             )
             emitProgress(
                 operationId: operationId,
                 stage: "ingesting",
-                message: "Images normalized for photogrammetry. Starting reconstruction...",
+                message: "Original images copied for photogrammetry. Starting reconstruction...",
                 progress: 0.05,
                 stepIndex: 2,
                 stepLabel: "Ingesting Photos"
@@ -391,8 +372,7 @@ import RoomPlan
 
     private func copySelectedImagesToInputDirectory(
         imagePaths: [String],
-        imagesDirectory: URL,
-        textureQuality: TextureQualityProfile
+        imagesDirectory: URL
     ) throws {
         let supportedExtensions: Set<String> = ["jpg", "jpeg", "heic", "heif", "png"]
         var copiedCount = 0
@@ -406,27 +386,13 @@ import RoomPlan
 
             let destinationURL = imagesDirectory
                 .appendingPathComponent(String(format: "image_%04d", index + 1))
-                .appendingPathExtension("jpg")
+                .appendingPathExtension(ext)
 
             if FileManager.default.fileExists(atPath: destinationURL.path) {
                 try? FileManager.default.removeItem(at: destinationURL)
             }
 
-            if let encodedData = makePhotogrammetryJPEGData(
-                sourceURL: sourceURL,
-                textureQuality: textureQuality
-            ) {
-                try encodedData.write(to: destinationURL, options: [.atomic])
-            } else {
-                // Fallback to original file copy if image decoding fails.
-                let fallbackURL = imagesDirectory
-                    .appendingPathComponent(String(format: "image_%04d", index + 1))
-                    .appendingPathExtension(ext)
-                if FileManager.default.fileExists(atPath: fallbackURL.path) {
-                    try? FileManager.default.removeItem(at: fallbackURL)
-                }
-                try FileManager.default.copyItem(at: sourceURL, to: fallbackURL)
-            }
+            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
             copiedCount += 1
         }
 
@@ -436,83 +402,6 @@ import RoomPlan
                 code: 1001,
                 userInfo: [NSLocalizedDescriptionKey: "Need at least 3 valid image files."]
             )
-        }
-    }
-
-    private func makePhotogrammetryJPEGData(
-        sourceURL: URL,
-        textureQuality: TextureQualityProfile
-    ) -> Data? {
-        guard let originalImage = UIImage(contentsOfFile: sourceURL.path) else {
-            return nil
-        }
-
-        let normalizedImage = resizedImageIfNeeded(
-            image: originalImage,
-            maxDimension: textureQuality.maxDimension
-        )
-
-        return normalizedImage.jpegData(compressionQuality: textureQuality.jpegQuality)
-    }
-
-    private func resizedImageIfNeeded(image: UIImage, maxDimension: CGFloat) -> UIImage {
-        let width = image.size.width
-        let height = image.size.height
-        let largest = max(width, height)
-        guard largest > maxDimension, maxDimension > 0 else {
-            return image
-        }
-
-        let ratio = maxDimension / largest
-        let targetSize = CGSize(
-            width: max(1, floor(width * ratio)),
-            height: max(1, floor(height * ratio))
-        )
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 1.0
-        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
-        return renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: targetSize))
-        }
-    }
-
-    private func sampleImagePathsForProcessing(
-        imagePaths: [String],
-        textureQuality: TextureQualityProfile,
-        outputFormat: OutputFormat
-    ) -> [String] {
-        guard imagePaths.count > 3 else { return imagePaths }
-
-        let maxCount: Int = {
-            switch textureQuality.label.lowercased() {
-            case "low":
-                return outputFormat == .obj ? 8 : 10
-            case "high":
-                return outputFormat == .obj ? 14 : 16
-            default:
-                return outputFormat == .obj ? 10 : 12
-            }
-        }()
-
-        guard imagePaths.count > maxCount else { return imagePaths }
-
-        let lastIndex = imagePaths.count - 1
-        let step = Double(lastIndex) / Double(maxCount - 1)
-        var sampled: [String] = []
-        sampled.reserveCapacity(maxCount)
-
-        for i in 0..<maxCount {
-            let index = Int((Double(i) * step).rounded())
-            let clamped = min(max(index, 0), lastIndex)
-            sampled.append(imagePaths[clamped])
-        }
-
-        // Deduplicate while preserving order.
-        var seen = Set<String>()
-        return sampled.filter { path in
-            if seen.contains(path) { return false }
-            seen.insert(path)
-            return true
         }
     }
 
@@ -547,14 +436,15 @@ import RoomPlan
             stage: "processing",
             message: "Photogrammetry started...",
             progress: 0.08,
+            elapsedSeconds: 0,
             stepIndex: 3,
             stepLabel: "Analyzing Photos"
         )
 
         var generatedURL: URL?
         var requestCompleted = false
+        var processingCompleted = false
         let requestStartDate = Date()
-        var processingCompleteDate: Date?
         let exportState = ExportProgressState()
         let watchdogState = PhotogrammetryWatchdogState()
         var exportHeartbeatTask: Task<Void, Never>?
@@ -579,7 +469,8 @@ import RoomPlan
                     emitProgress(
                         operationId: operationId,
                         stage: "failed",
-                        message: reason
+                        message: reason,
+                        elapsedSeconds: totalElapsed
                     )
                     photogrammetry.cancel()
                     await watchdogState.markDone()
@@ -592,7 +483,8 @@ import RoomPlan
                     emitProgress(
                         operationId: operationId,
                         stage: "failed",
-                        message: reason
+                        message: reason,
+                        elapsedSeconds: totalElapsed
                     )
                     photogrammetry.cancel()
                     await watchdogState.markDone()
@@ -601,7 +493,7 @@ import RoomPlan
             }
         }
 
-        for try await output in photogrammetry.outputs {
+        outputLoop: for try await output in photogrammetry.outputs {
             await watchdogState.markOutput()
             switch output {
             case .inputComplete:
@@ -610,6 +502,7 @@ import RoomPlan
                     stage: "processing",
                     message: "Image ingestion complete. Building geometry...",
                     progress: 0.12,
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate),
                     stepIndex: 3,
                     stepLabel: "Analyzing Photos"
                 )
@@ -619,6 +512,7 @@ import RoomPlan
                     stage: "processing",
                     message: "Reconstructing model...",
                     progress: fractionComplete,
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate),
                     stepIndex: 4,
                     stepLabel: "Reconstructing Geometry"
                 )
@@ -633,6 +527,7 @@ import RoomPlan
                     stage: "processing",
                     message: "Step \(stepInfo.index)/\(Self.pipelineTotalSteps): \(stepInfo.label)",
                     etaSeconds: etaValue,
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate),
                     stepIndex: stepInfo.index,
                     stepLabel: stepInfo.label
                 )
@@ -640,25 +535,29 @@ import RoomPlan
                 emitProgress(
                     operationId: operationId,
                     stage: "info",
-                    message: "Input images were downsampled to fit memory limits."
+                    message: "Input images were downsampled to fit memory limits.",
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate)
                 )
             case .invalidSample(_, let reason):
                 emitProgress(
                     operationId: operationId,
                     stage: "info",
-                    message: "Skipped invalid sample: \(reason)"
+                    message: "Skipped invalid sample: \(reason)",
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate)
                 )
             case .skippedSample(let id):
                 emitProgress(
                     operationId: operationId,
                     stage: "info",
-                    message: "Skipped sample id \(id)."
+                    message: "Skipped sample id \(id).",
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate)
                 )
             case .stitchingIncomplete:
                 emitProgress(
                     operationId: operationId,
                     stage: "info",
-                    message: "Stitching incomplete. Output quality may be reduced."
+                    message: "Stitching incomplete. Output quality may be reduced.",
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate)
                 )
             case .requestComplete(_, let result):
                 requestCompleted = true
@@ -671,12 +570,14 @@ import RoomPlan
                 }
                 emitProgress(
                     operationId: operationId,
-                    stage: "finalizing",
-                    message: "Finalizing output model...",
-                    progress: 0.98,
-                    stepIndex: 5,
-                    stepLabel: "Finalizing Reconstruction"
+                    stage: "completed",
+                    message: "Model file is ready.",
+                    progress: 1.0,
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate),
+                    stepIndex: 6,
+                    stepLabel: "Model Ready"
                 )
+                break outputLoop
             case .requestError(_, let error):
                 await exportState.markDone()
                 await watchdogState.markDone()
@@ -684,53 +585,22 @@ import RoomPlan
                 exportHeartbeatTask = nil
                 throw error
             case .processingComplete:
-                await watchdogState.markExportStarted()
-                processingCompleteDate = Date()
-                let exportLabel = options.outputFormat == .obj
-                    ? "Exporting OBJ assets..."
-                    : "Exporting USDZ file..."
-                emitProgress(
-                    operationId: operationId,
-                    stage: "finalizing",
-                    message: "Processing complete. \(exportLabel)",
-                    progress: 0.99,
-                    stepIndex: 6,
-                    stepLabel: "Exporting Model File"
-                )
-                emitProgress(
-                    operationId: operationId,
-                    stage: "info",
-                    message: options.outputFormat == .obj
-                        ? "OBJ export still depends on texture baking and can take time."
-                        : "USDZ export can take several minutes for large texture sets."
-                )
+                processingCompleted = true
+                generatedURL = generatedURL ?? outputModelURL
+                await exportState.markDone()
+                await watchdogState.markDone()
                 exportHeartbeatTask?.cancel()
-                exportHeartbeatTask = Task {
-                    let maxExportSeconds: Int = options.outputFormat == .obj ? 420 : 600
-                    while await !exportState.isDone() {
-                        try? await Task.sleep(for: .seconds(15))
-                        if await exportState.isDone() { break }
-                        guard let started = processingCompleteDate else { continue }
-                        let elapsed = Int(Date().timeIntervalSince(started).rounded())
-                        if elapsed >= maxExportSeconds {
-                            emitProgress(
-                                operationId: operationId,
-                                stage: "failed",
-                                message: "Export exceeded \(maxExportSeconds)s. Cancelling to avoid indefinite stall. Try fewer photos or lower texture quality."
-                            )
-                            photogrammetry.cancel()
-                            await exportState.markDone()
-                            break
-                        }
-                        emitProgress(
-                            operationId: operationId,
-                            stage: "info",
-                            message: options.outputFormat == .obj
-                                ? "Still exporting OBJ assets... (\(elapsed)s)"
-                                : "Still exporting USDZ file... (\(elapsed)s)"
-                        )
-                    }
-                }
+                exportHeartbeatTask = nil
+                emitProgress(
+                    operationId: operationId,
+                    stage: "completed",
+                    message: "Processing complete. Model file is ready.",
+                    progress: 1.0,
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate),
+                    stepIndex: 6,
+                    stepLabel: "Model Ready"
+                )
+                break outputLoop
             case .processingCancelled:
                 await exportState.markDone()
                 await watchdogState.markDone()
@@ -747,7 +617,8 @@ import RoomPlan
                 emitProgress(
                     operationId: operationId,
                     stage: "cancelled",
-                    message: "Generation was cancelled."
+                    message: "Generation was cancelled.",
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate)
                 )
                 throw NSError(
                     domain: "ObjectCapture",
@@ -765,7 +636,7 @@ import RoomPlan
         exportHeartbeatTask = nil
         watchdogTask = nil
 
-        if !requestCompleted {
+        if !requestCompleted && !processingCompleted {
             throw NSError(
                 domain: "ObjectCapture",
                 code: 1003,
@@ -788,23 +659,26 @@ import RoomPlan
         )
 
         let totalSeconds = Int(Date().timeIntervalSince(requestStartDate).rounded())
-        if let processingCompleteDate {
-            let exportSeconds = Int(Date().timeIntervalSince(processingCompleteDate).rounded())
+        if requestCompleted || processingCompleted {
             let fileSizeBytes = (try? FileManager.default.attributesOfItem(atPath: finalURL.path)[.size] as? NSNumber)?.int64Value ?? 0
             let fileSizeMB = Double(fileSizeBytes) / (1024.0 * 1024.0)
             emitProgress(
                 operationId: operationId,
                 stage: "info",
                 message: String(
-                    format: "Export finished in %ds (total %ds). Output size: %.1f MB",
-                    exportSeconds,
+                    format: "Model finished in %ds. Output size: %.1f MB",
                     totalSeconds,
                     fileSizeMB
-                )
+                ),
+                elapsedSeconds: totalSeconds
             )
         }
 
         return finalURL
+    }
+
+    private func elapsedSeconds(since startDate: Date) -> Int {
+        max(0, Int(Date().timeIntervalSince(startDate).rounded()))
     }
 
     private func resolvePreviewableOutputURL(
@@ -853,6 +727,7 @@ import RoomPlan
         message: String,
         progress: Double? = nil,
         etaSeconds: Int? = nil,
+        elapsedSeconds: Int? = nil,
         stepIndex: Int? = nil,
         stepLabel: String? = nil
     ) {
@@ -871,6 +746,9 @@ import RoomPlan
             }
             if let etaSeconds, etaSeconds >= 0 {
                 payload["etaSeconds"] = etaSeconds
+            }
+            if let elapsedSeconds, elapsedSeconds >= 0 {
+                payload["elapsedSeconds"] = elapsedSeconds
             }
             if let stepIndex, stepIndex > 0 {
                 payload["stepIndex"] = min(stepIndex, Self.pipelineTotalSteps)
@@ -927,29 +805,13 @@ import RoomPlan
         let textureQuality: TextureQualityProfile = {
             switch textureQualityRaw {
             case "low":
-                return TextureQualityProfile(
-                    maxDimension: 1536,
-                    jpegQuality: 0.72,
-                    label: "Low"
-                )
+                return TextureQualityProfile(label: "Low")
             case "high":
-                return TextureQualityProfile(
-                    maxDimension: 3072,
-                    jpegQuality: 0.90,
-                    label: "High"
-                )
+                return TextureQualityProfile(label: "High")
             case "medium", .none:
-                return TextureQualityProfile(
-                    maxDimension: 2048,
-                    jpegQuality: 0.82,
-                    label: "Medium"
-                )
+                return TextureQualityProfile(label: "Medium")
             default:
-                return TextureQualityProfile(
-                    maxDimension: 2048,
-                    jpegQuality: 0.82,
-                    label: "Medium"
-                )
+                return TextureQualityProfile(label: "Medium")
             }
         }()
 

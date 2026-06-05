@@ -25,7 +25,7 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/image_picker_ios/ios"
 
 SPEC CHECKSUMS:
-  apple_spatial_capture: da1ffd99bb0017e27f3b64f8fb774e2b1af7ec81
+  apple_spatial_capture: b6fce7fc616a31622d90235c4202fa8b0de25312
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   GLTFSceneKit: d1b437c514ba2aed5555afb0fddd64e030612d57
   image_picker_ios: e0ece4aa2a75771a7de3fa735d26d90817041326

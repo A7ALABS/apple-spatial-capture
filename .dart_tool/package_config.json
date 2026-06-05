@@ -15,7 +15,7 @@
     },
     {
       "name": "flutter",
-      "rootUri": "file:///Users/mechaadi/Documents/devtools/flutter/packages/flutter",
+      "rootUri": "file:///Users/mechaadi/fvm/versions/3.41.2/packages/flutter",
       "packageUri": "lib/",
       "languageVersion": "3.9"
     },
@@ -33,7 +33,7 @@
     },
     {
       "name": "sky_engine",
-      "rootUri": "file:///Users/mechaadi/Documents/devtools/flutter/bin/cache/pkg/sky_engine",
+      "rootUri": "file:///Users/mechaadi/fvm/versions/3.41.2/bin/cache/pkg/sky_engine",
       "packageUri": "lib/",
       "languageVersion": "3.9"
     },
@@ -51,8 +51,8 @@
     }
   ],
   "generator": "pub",
-  "generatorVersion": "3.11.5",
-  "flutterRoot": "file:///Users/mechaadi/Documents/devtools/flutter",
-  "flutterVersion": "3.41.7",
+  "generatorVersion": "3.11.0",
+  "flutterRoot": "file:///Users/mechaadi/fvm/versions/3.41.2",
+  "flutterVersion": "3.41.2",
   "pubCache": "file:///Users/mechaadi/.pub-cache"
 }

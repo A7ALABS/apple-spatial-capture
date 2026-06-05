@@ -7,12 +7,14 @@ class StatusBanner extends StatelessWidget {
     required this.message,
     required this.errorMessage,
     required this.progress,
+    this.elapsedLabel,
   });
 
   final bool isWorking;
   final String message;
   final String? errorMessage;
   final double? progress;
+  final String? elapsedLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -53,6 +55,26 @@ class StatusBanner extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (elapsedLabel != null) ...[
+                  const SizedBox(width: 12),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: colorScheme.surface.withValues(alpha: 0.35),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      child: Text(
+                        elapsedLabel!,
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
             if (progress != null) ...[

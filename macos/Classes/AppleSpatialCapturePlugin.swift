@@ -32,6 +32,51 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
         let outputFormat: OutputFormat
     }
 
+    private actor ExportProgressState {
+        var done = false
+
+        func markDone() {
+            done = true
+        }
+
+        func isDone() -> Bool {
+            done
+        }
+    }
+
+    private actor PhotogrammetryWatchdogState {
+        private var done = false
+        private var exportStarted = false
+        private var lastOutputAt = Date()
+        private var cancelReason: String?
+
+        func markOutput() {
+            lastOutputAt = Date()
+        }
+
+        func markExportStarted() {
+            exportStarted = true
+            lastOutputAt = Date()
+        }
+
+        func requestCancel(reason: String) {
+            cancelReason = reason
+        }
+
+        func markDone() {
+            done = true
+        }
+
+        func snapshot() -> (
+            done: Bool,
+            exportStarted: Bool,
+            lastOutputAt: Date,
+            cancelReason: String?
+        ) {
+            (done, exportStarted, lastOutputAt, cancelReason)
+        }
+    }
+
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(
             name: channelName,
@@ -140,7 +185,7 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
             return
         }
 
-        let imagePaths = rawImagePaths
+        let rawNormalizedPaths = rawImagePaths
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         let operationId = (args["operationId"] as? String)?
@@ -149,7 +194,7 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
             from: args["options"] as? [String: Any]
         )
 
-        guard imagePaths.count >= 3 else {
+        guard rawNormalizedPaths.count >= 3 else {
             result(FlutterError(
                 code: "INSUFFICIENT_IMAGES",
                 message: "Select at least 3 photos to generate a model.",
@@ -174,27 +219,43 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
                 message: "Object masking is not applied by the macOS reconstruction path."
             )
         }
+        emitProgress(
+            operationId: operationId,
+            stage: "info",
+            message: "Texture quality: \(options.textureQuality.label). Output: \(options.outputFormat == .obj ? "OBJ" : "USDZ")."
+        )
 
         let outputDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("objectcapture_macos_\(UUID().uuidString)", isDirectory: true)
         let imagesDirectory = outputDir.appendingPathComponent("Images", isDirectory: true)
-        let modelURL = outputDir.appendingPathComponent(
-            options.outputFormat == .obj ? "model.obj" : "model.usdz"
-        )
+        let modelURL: URL = {
+            switch options.outputFormat {
+            case .usdz:
+                return outputDir.appendingPathComponent("model.usdz")
+            case .obj:
+                return outputDir.appendingPathComponent("model_obj", isDirectory: true)
+            }
+        }()
 
         do {
             try FileManager.default.createDirectory(
                 at: imagesDirectory,
                 withIntermediateDirectories: true
             )
+            if options.outputFormat == .obj {
+                try FileManager.default.createDirectory(
+                    at: modelURL,
+                    withIntermediateDirectories: true
+                )
+            }
             try copySelectedImagesToInputDirectory(
-                imagePaths: imagePaths,
+                imagePaths: rawNormalizedPaths,
                 imagesDirectory: imagesDirectory
             )
             emitProgress(
                 operationId: operationId,
                 stage: "ingesting",
-                message: "Images prepared for macOS photogrammetry.",
+                message: "Original images copied for macOS photogrammetry.",
                 progress: 0.05,
                 stepIndex: 2,
                 stepLabel: "Ingesting Photos"
@@ -221,24 +282,24 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
                     operationId: operationId,
                     options: options
                 )
+                self.emitProgress(
+                    operationId: operationId,
+                    stage: "completed",
+                    message: "3D model generated.",
+                    progress: 1.0,
+                    stepIndex: Self.pipelineTotalSteps,
+                    stepLabel: "Completed"
+                )
                 DispatchQueue.main.async {
-                    self.emitProgress(
-                        operationId: operationId,
-                        stage: "completed",
-                        message: "3D model generated.",
-                        progress: 1.0,
-                        stepIndex: Self.pipelineTotalSteps,
-                        stepLabel: "Completed"
-                    )
                     result(generatedURL.path)
                 }
             } catch {
+                self.emitProgress(
+                    operationId: operationId,
+                    stage: "failed",
+                    message: error.localizedDescription
+                )
                 DispatchQueue.main.async {
-                    self.emitProgress(
-                        operationId: operationId,
-                        stage: "failed",
-                        message: error.localizedDescription
-                    )
                     result(FlutterError(
                         code: "PHOTOGRAMMETRY_FAILED",
                         message: error.localizedDescription,
@@ -278,6 +339,7 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
             if FileManager.default.fileExists(atPath: destinationURL.path) {
                 try? FileManager.default.removeItem(at: destinationURL)
             }
+
             try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
             copiedCount += 1
         }
@@ -321,14 +383,65 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
             stage: "processing",
             message: "Photogrammetry started...",
             progress: 0.08,
+            elapsedSeconds: 0,
             stepIndex: 3,
             stepLabel: "Analyzing Photos"
         )
 
         var generatedURL: URL?
         var requestCompleted = false
+        var processingCompleted = false
+        let requestStartDate = Date()
+        let exportState = ExportProgressState()
+        let watchdogState = PhotogrammetryWatchdogState()
+        var exportHeartbeatTask: Task<Void, Never>?
+        var watchdogTask: Task<Void, Never>?
 
-        for try await output in photogrammetry.outputs {
+        watchdogTask = Task {
+            let maxTotalSeconds = 900
+            let maxReconstructionIdleSeconds = 180
+
+            while true {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                let state = await watchdogState.snapshot()
+                if state.done { break }
+
+                let now = Date()
+                let totalElapsed = Int(now.timeIntervalSince(requestStartDate).rounded())
+                let idleElapsed = Int(now.timeIntervalSince(state.lastOutputAt).rounded())
+
+                if totalElapsed >= maxTotalSeconds {
+                    let reason = "Photogrammetry exceeded \(maxTotalSeconds)s and was cancelled. Try fewer photos or lower texture quality."
+                    await watchdogState.requestCancel(reason: reason)
+                    emitProgress(
+                        operationId: operationId,
+                        stage: "failed",
+                        message: reason,
+                        elapsedSeconds: totalElapsed
+                    )
+                    photogrammetry.cancel()
+                    await watchdogState.markDone()
+                    break
+                }
+
+                if !state.exportStarted && idleElapsed >= maxReconstructionIdleSeconds {
+                    let reason = "Photogrammetry stalled for \(maxReconstructionIdleSeconds)s without progress and was cancelled."
+                    await watchdogState.requestCancel(reason: reason)
+                    emitProgress(
+                        operationId: operationId,
+                        stage: "failed",
+                        message: reason,
+                        elapsedSeconds: totalElapsed
+                    )
+                    photogrammetry.cancel()
+                    await watchdogState.markDone()
+                    break
+                }
+            }
+        }
+
+        outputLoop: for try await output in photogrammetry.outputs {
+            await watchdogState.markOutput()
             switch output {
             case .inputComplete:
                 emitProgress(
@@ -336,6 +449,7 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
                     stage: "processing",
                     message: "Image ingestion complete. Building geometry...",
                     progress: 0.12,
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate),
                     stepIndex: 3,
                     stepLabel: "Analyzing Photos"
                 )
@@ -345,6 +459,7 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
                     stage: "processing",
                     message: "Reconstructing model...",
                     progress: fractionComplete,
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate),
                     stepIndex: 4,
                     stepLabel: "Reconstructing Geometry"
                 )
@@ -359,6 +474,7 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
                     stage: "processing",
                     message: "Step \(stepInfo.index)/\(Self.pipelineTotalSteps): \(stepInfo.label)",
                     etaSeconds: etaValue,
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate),
                     stepIndex: stepInfo.index,
                     stepLabel: stepInfo.label
                 )
@@ -366,57 +482,90 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
                 emitProgress(
                     operationId: operationId,
                     stage: "info",
-                    message: "Input images were downsampled to fit memory limits."
+                    message: "Input images were downsampled to fit memory limits.",
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate)
                 )
             case .invalidSample(_, let reason):
                 emitProgress(
                     operationId: operationId,
                     stage: "info",
-                    message: "Skipped invalid sample: \(reason)"
+                    message: "Skipped invalid sample: \(reason)",
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate)
                 )
             case .skippedSample(let id):
                 emitProgress(
                     operationId: operationId,
                     stage: "info",
-                    message: "Skipped sample id \(id)."
+                    message: "Skipped sample id \(id).",
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate)
                 )
             case .stitchingIncomplete:
                 emitProgress(
                     operationId: operationId,
                     stage: "info",
-                    message: "Stitching incomplete. Output quality may be reduced."
+                    message: "Stitching incomplete. Output quality may be reduced.",
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate)
                 )
             case .requestComplete(_, let result):
                 requestCompleted = true
+                await exportState.markDone()
+                await watchdogState.markDone()
+                exportHeartbeatTask?.cancel()
+                exportHeartbeatTask = nil
                 if case .modelFile(let modelFileURL) = result {
                     generatedURL = modelFileURL
                 }
                 emitProgress(
                     operationId: operationId,
-                    stage: "finalizing",
-                    message: "Finalizing output model...",
-                    progress: 0.98,
-                    stepIndex: 5,
-                    stepLabel: "Finalizing Reconstruction"
+                    stage: "completed",
+                    message: "Model file is ready.",
+                    progress: 1.0,
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate),
+                    stepIndex: 6,
+                    stepLabel: "Model Ready"
                 )
+                break outputLoop
             case .requestError(_, let error):
+                await exportState.markDone()
+                await watchdogState.markDone()
+                exportHeartbeatTask?.cancel()
+                exportHeartbeatTask = nil
                 throw error
             case .processingComplete:
+                processingCompleted = true
+                generatedURL = generatedURL ?? outputModelURL
+                await exportState.markDone()
+                await watchdogState.markDone()
+                exportHeartbeatTask?.cancel()
+                exportHeartbeatTask = nil
                 emitProgress(
                     operationId: operationId,
-                    stage: "finalizing",
-                    message: options.outputFormat == .obj
-                        ? "Processing complete. Exporting OBJ file..."
-                        : "Processing complete. Exporting USDZ file...",
-                    progress: 0.99,
+                    stage: "completed",
+                    message: "Processing complete. Model file is ready.",
+                    progress: 1.0,
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate),
                     stepIndex: 6,
-                    stepLabel: "Exporting Model File"
+                    stepLabel: "Model Ready"
                 )
+                break outputLoop
             case .processingCancelled:
+                await exportState.markDone()
+                await watchdogState.markDone()
+                exportHeartbeatTask?.cancel()
+                exportHeartbeatTask = nil
+                let state = await watchdogState.snapshot()
+                if let cancelReason = state.cancelReason, !cancelReason.isEmpty {
+                    throw NSError(
+                        domain: "ObjectCapture",
+                        code: 1011,
+                        userInfo: [NSLocalizedDescriptionKey: cancelReason]
+                    )
+                }
                 emitProgress(
                     operationId: operationId,
                     stage: "cancelled",
-                    message: "Generation was cancelled."
+                    message: "Generation was cancelled.",
+                    elapsedSeconds: elapsedSeconds(since: requestStartDate)
                 )
                 throw NSError(
                     domain: "ObjectCapture",
@@ -427,8 +576,14 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
                 break
             }
         }
+        await exportState.markDone()
+        await watchdogState.markDone()
+        exportHeartbeatTask?.cancel()
+        watchdogTask?.cancel()
+        exportHeartbeatTask = nil
+        watchdogTask = nil
 
-        guard requestCompleted else {
+        guard requestCompleted || processingCompleted else {
             throw NSError(
                 domain: "ObjectCapture",
                 code: 1003,
@@ -436,8 +591,8 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
             )
         }
 
-        let finalURL = generatedURL ?? outputModelURL
-        guard FileManager.default.fileExists(atPath: finalURL.path) else {
+        let rawOutputURL = generatedURL ?? outputModelURL
+        guard FileManager.default.fileExists(atPath: rawOutputURL.path) else {
             throw NSError(
                 domain: "ObjectCapture",
                 code: 1004,
@@ -445,9 +600,75 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
             )
         }
 
+        let finalURL = try resolvePreviewableOutputURL(
+            outputURL: rawOutputURL,
+            outputFormat: options.outputFormat
+        )
+
         try? FileManager.default.removeItem(at: inputDirectory)
 
+        if requestCompleted || processingCompleted {
+            let totalSeconds = Int(Date().timeIntervalSince(requestStartDate).rounded())
+            let fileSizeBytes = (try? FileManager.default.attributesOfItem(atPath: finalURL.path)[.size] as? NSNumber)?.int64Value ?? 0
+            let fileSizeMB = Double(fileSizeBytes) / (1024.0 * 1024.0)
+            emitProgress(
+                operationId: operationId,
+                stage: "info",
+                message: String(
+                    format: "Model finished in %ds. Output size: %.1f MB",
+                    totalSeconds,
+                    fileSizeMB
+                ),
+                elapsedSeconds: totalSeconds
+            )
+        }
+
         return finalURL
+    }
+
+    private func elapsedSeconds(since startDate: Date) -> Int {
+        max(0, Int(Date().timeIntervalSince(startDate).rounded()))
+    }
+
+    private func resolvePreviewableOutputURL(
+        outputURL: URL,
+        outputFormat: OutputFormat
+    ) throws -> URL {
+        guard outputFormat == .obj else {
+            return outputURL
+        }
+
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(
+            atPath: outputURL.path,
+            isDirectory: &isDirectory
+        )
+        guard exists else { return outputURL }
+        guard isDirectory.boolValue else {
+            return outputURL
+        }
+
+        let enumerator = FileManager.default.enumerator(
+            at: outputURL,
+            includingPropertiesForKeys: nil
+        )
+
+        var candidateURL: URL?
+        while let item = enumerator?.nextObject() as? URL {
+            let ext = item.pathExtension.lowercased()
+            if ext == "obj" {
+                return item
+            }
+            if candidateURL == nil && ["usdz", "usdc", "reality"].contains(ext) {
+                candidateURL = item
+            }
+        }
+
+        if let candidateURL {
+            return candidateURL
+        }
+
+        return outputURL
     }
 
     private func previewCapturedModel(
@@ -578,6 +799,9 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
     private func parsePhotogrammetryRunOptions(
         from raw: [String: Any]?
     ) -> PhotogrammetryRunOptions {
+        let textureQualityRaw = (raw?["textureQuality"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
         let detailRaw = (raw?["detail"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -591,8 +815,17 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
                 return .full
             case "raw":
                 return .raw
-            case "reduced", .none:
+            case "reduced":
                 return .reduced
+            case .none:
+                switch textureQualityRaw {
+                case "high":
+                    return .full
+                case "medium":
+                    return .medium
+                default:
+                    return .reduced
+                }
             default:
                 return .reduced
             }
@@ -626,9 +859,6 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
             }
         }()
 
-        let textureQualityRaw = (raw?["textureQuality"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
         let textureQuality: TextureQualityProfile = {
             switch textureQualityRaw {
             case "low":
@@ -708,6 +938,7 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
         message: String,
         progress: Double? = nil,
         etaSeconds: Int? = nil,
+        elapsedSeconds: Int? = nil,
         stepIndex: Int? = nil,
         stepLabel: String? = nil
     ) {
@@ -726,6 +957,9 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
             }
             if let etaSeconds, etaSeconds >= 0 {
                 payload["etaSeconds"] = etaSeconds
+            }
+            if let elapsedSeconds, elapsedSeconds >= 0 {
+                payload["elapsedSeconds"] = elapsedSeconds
             }
             if let stepIndex, stepIndex > 0 {
                 payload["stepIndex"] = min(stepIndex, Self.pipelineTotalSteps)

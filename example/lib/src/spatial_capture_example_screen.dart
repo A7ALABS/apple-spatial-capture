@@ -27,7 +27,8 @@ class _SpatialCaptureExampleScreenState
       TextEditingController();
 
   AppleSpatialCaptureSupport? _support;
-  AppleSpatialCaptureFileType _remoteFileType = AppleSpatialCaptureFileType.usdz;
+  AppleSpatialCaptureFileType _remoteFileType =
+      AppleSpatialCaptureFileType.usdz;
   ApplePhotogrammetryOutputFormat _photoOutputFormat =
       ApplePhotogrammetryOutputFormat.obj;
   ApplePhotogrammetryTextureQuality _photoTextureQuality =
@@ -39,6 +40,8 @@ class _SpatialCaptureExampleScreenState
   bool _useObjectMasking = false;
 
   StreamSubscription<AppleSpatialCaptureProgress>? _progressSubscription;
+  Timer? _elapsedTimer;
+  DateTime? _operationStartedAt;
   String? _activeOperationId;
   String? _lastModelPath;
   String? _errorMessage;
@@ -46,6 +49,7 @@ class _SpatialCaptureExampleScreenState
   bool _isCheckingSupport = true;
   bool _isWorking = false;
   double? _progress;
+  int? _elapsedSeconds;
   final List<String> _progressLog = <String>[];
 
   @override
@@ -56,6 +60,7 @@ class _SpatialCaptureExampleScreenState
 
   @override
   void dispose() {
+    _elapsedTimer?.cancel();
     _progressSubscription?.cancel();
     _localPathController.dispose();
     _remoteUrlController.dispose();
@@ -76,6 +81,7 @@ class _SpatialCaptureExampleScreenState
     setState(() {
       _isCheckingSupport = true;
       _errorMessage = null;
+      _elapsedSeconds = null;
       _statusMessage = 'Checking device support...';
     });
 
@@ -142,6 +148,8 @@ class _SpatialCaptureExampleScreenState
   Future<void> _startPhotoReconstruction() async {
     if (!_ensureSupported(_support?.photogrammetry, 'Photogrammetry')) return;
 
+    setState(() => _elapsedSeconds = null);
+
     List<XFile> images;
     try {
       images = await _imagePicker.pickMultiImage();
@@ -163,6 +171,7 @@ class _SpatialCaptureExampleScreenState
 
     final operationId = 'example_${DateTime.now().microsecondsSinceEpoch}';
     _activeOperationId = operationId;
+    _startElapsedTimer();
     await _progressSubscription?.cancel();
     _progressSubscription = AppleSpatialCapture.platform.progressStream.listen(
       _handleProgressEvent,
@@ -173,6 +182,7 @@ class _SpatialCaptureExampleScreenState
       _isWorking = true;
       _errorMessage = null;
       _progress = null;
+      _elapsedSeconds = 0;
       _lastModelPath = null;
       _statusMessage = 'Generating model from ${imagePaths.length} photos...';
       _progressLog
@@ -186,6 +196,7 @@ class _SpatialCaptureExampleScreenState
             imagePaths,
             operationId: operationId,
             options: ApplePhotogrammetryOptions(
+              detail: _detailForTextureQuality(_photoTextureQuality),
               outputFormat: _photoOutputFormat,
               textureQuality: _photoTextureQuality,
               sampleOrdering: _photoSampleOrdering,
@@ -203,7 +214,9 @@ class _SpatialCaptureExampleScreenState
       setState(() {
         _lastModelPath = path;
         _localPathController.text = path;
-        _statusMessage = 'Photo reconstruction complete.';
+        _statusMessage = _elapsedSeconds == null
+            ? 'Photo reconstruction complete.'
+            : 'Photo reconstruction complete in ${_formatDuration(_elapsedSeconds!)}.';
       });
     } on AppleSpatialCaptureError catch (error) {
       _setError(error.message);
@@ -213,6 +226,7 @@ class _SpatialCaptureExampleScreenState
       await _progressSubscription?.cancel();
       _progressSubscription = null;
       _activeOperationId = null;
+      _stopElapsedTimer();
       if (mounted) {
         setState(() => _isWorking = false);
       }
@@ -227,6 +241,7 @@ class _SpatialCaptureExampleScreenState
       _isWorking = true;
       _errorMessage = null;
       _progress = null;
+      _elapsedSeconds = null;
       _lastModelPath = null;
       _statusMessage = statusMessage;
       _progressLog.clear();
@@ -299,6 +314,7 @@ class _SpatialCaptureExampleScreenState
     setState(() {
       _isWorking = true;
       _errorMessage = null;
+      _elapsedSeconds = null;
       _statusMessage = 'Downloading remote model preview...';
     });
 
@@ -343,12 +359,23 @@ class _SpatialCaptureExampleScreenState
         '${event.stepIndex}/${event.stepTotal}',
       if ((event.stepLabel ?? '').isNotEmpty) event.stepLabel!,
       if (event.message.isNotEmpty) event.message,
+      if (event.elapsedSeconds != null)
+        '${_formatDuration(event.elapsedSeconds!)} elapsed',
       if (event.etaSeconds != null) '${event.etaSeconds}s remaining',
     ];
 
     setState(() {
       _progress = event.progress;
-      _statusMessage = event.stepLabel ?? event.message;
+      final statusText = event.stepLabel ?? event.message;
+      if (event.elapsedSeconds != null) {
+        final currentElapsed = _elapsedSeconds;
+        _elapsedSeconds = currentElapsed == null
+            ? event.elapsedSeconds
+            : event.elapsedSeconds! > currentElapsed
+            ? event.elapsedSeconds
+            : currentElapsed;
+      }
+      _statusMessage = statusText;
       _progressLog.insert(0, pieces.join(' - '));
       if (_progressLog.length > 8) {
         _progressLog.removeLast();
@@ -380,6 +407,49 @@ class _SpatialCaptureExampleScreenState
   ) {
     if (fileName.contains('.')) return fileName;
     return '$fileName.${fileType.value}';
+  }
+
+  String _formatDuration(int seconds) {
+    final duration = Duration(seconds: seconds);
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final secs = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+    if (hours > 0) {
+      return '$hours:$minutes:$secs';
+    }
+    return '${duration.inMinutes}:$secs';
+  }
+
+  ApplePhotogrammetryDetail _detailForTextureQuality(
+    ApplePhotogrammetryTextureQuality textureQuality,
+  ) {
+    switch (textureQuality) {
+      case ApplePhotogrammetryTextureQuality.low:
+        return ApplePhotogrammetryDetail.reduced;
+      case ApplePhotogrammetryTextureQuality.medium:
+        return ApplePhotogrammetryDetail.medium;
+      case ApplePhotogrammetryTextureQuality.high:
+        return ApplePhotogrammetryDetail.full;
+    }
+  }
+
+  void _startElapsedTimer() {
+    _elapsedTimer?.cancel();
+    _operationStartedAt = DateTime.now();
+    _elapsedSeconds = 0;
+    _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final startedAt = _operationStartedAt;
+      if (!mounted || startedAt == null) return;
+      setState(() {
+        _elapsedSeconds = DateTime.now().difference(startedAt).inSeconds;
+      });
+    });
+  }
+
+  void _stopElapsedTimer() {
+    _elapsedTimer?.cancel();
+    _elapsedTimer = null;
+    _operationStartedAt = null;
   }
 
   bool get _isAppleSpatialPlatform => Platform.isIOS || Platform.isMacOS;
@@ -416,6 +486,9 @@ class _SpatialCaptureExampleScreenState
                   message: _statusMessage,
                   errorMessage: _errorMessage,
                   progress: _progress,
+                  elapsedLabel: _elapsedSeconds == null
+                      ? null
+                      : 'Elapsed ${_formatDuration(_elapsedSeconds!)}',
                 ),
               ),
               Expanded(

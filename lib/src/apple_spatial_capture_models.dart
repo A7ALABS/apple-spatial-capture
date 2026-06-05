@@ -192,6 +192,7 @@ class AppleSpatialCaptureProgress {
     required this.message,
     this.progress,
     this.etaSeconds,
+    this.elapsedSeconds,
     this.operationId,
     this.stepIndex,
     this.stepTotal,
@@ -203,6 +204,7 @@ class AppleSpatialCaptureProgress {
   final String message;
   final double? progress;
   final int? etaSeconds;
+  final int? elapsedSeconds;
   final String? operationId;
   final int? stepIndex;
   final int? stepTotal;
@@ -214,6 +216,8 @@ class AppleSpatialCaptureProgress {
     final progressValue = progressRaw is num ? progressRaw.toDouble() : null;
     final etaRaw = map['etaSeconds'];
     final etaValue = etaRaw is num ? etaRaw.toInt() : null;
+    final elapsedRaw = map['elapsedSeconds'];
+    final elapsedValue = elapsedRaw is num ? elapsedRaw.toInt() : null;
     final stepIndexRaw = map['stepIndex'];
     final stepTotalRaw = map['stepTotal'];
     final stepIndexValue = stepIndexRaw is num ? stepIndexRaw.toInt() : null;
@@ -225,6 +229,7 @@ class AppleSpatialCaptureProgress {
       message: (map['message'] as String? ?? '').trim(),
       progress: progressValue,
       etaSeconds: etaValue,
+      elapsedSeconds: elapsedValue,
       operationId: (map['operationId'] as String?)?.trim(),
       stepIndex: stepIndexValue,
       stepTotal: stepTotalValue,
