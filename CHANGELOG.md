@@ -1,3 +1,7 @@
+## 0.2.3
+
+- Added Swift Package Manager manifests for iOS and macOS.
+
 ## 0.2.2
 
 - Added dartdoc coverage for the exported public Dart API.
