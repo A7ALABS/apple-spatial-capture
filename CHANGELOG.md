@@ -1,6 +1,9 @@
-## 0.2.1
+## 0.2.2
 
 - Added dartdoc coverage for the exported public Dart API.
+
+## 0.2.1
+
 - Preserved original photogrammetry input images without sampling, resizing, or JPEG recompression.
 - Mapped the example texture quality picker to RealityKit detail levels on macOS.
 - Fixed photogrammetry completion handling so model generation returns when RealityKit reports request or processing completion.
