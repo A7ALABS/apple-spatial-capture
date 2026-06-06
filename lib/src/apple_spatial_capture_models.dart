@@ -1,8 +1,39 @@
-enum AppleSpatialCaptureFileType { glb, gltf, usdz, obj }
+/// Supported 3D model file types for native preview.
+enum AppleSpatialCaptureFileType {
+  /// Binary glTF model.
+  glb,
 
-enum ApplePhotogrammetryDetail { preview, reduced, medium, full, raw }
+  /// Text glTF model.
+  gltf,
 
+  /// Universal Scene Description ZIP model.
+  usdz,
+
+  /// Wavefront OBJ model.
+  obj,
+}
+
+/// RealityKit photogrammetry reconstruction detail level.
+enum ApplePhotogrammetryDetail {
+  /// Fastest low-detail reconstruction.
+  preview,
+
+  /// Reduced-detail reconstruction.
+  reduced,
+
+  /// Medium-detail reconstruction.
+  medium,
+
+  /// Full-detail reconstruction.
+  full,
+
+  /// Raw reconstruction detail when supported by the platform.
+  raw,
+}
+
+/// Serialized values for [ApplePhotogrammetryDetail].
 extension ApplePhotogrammetryDetailValue on ApplePhotogrammetryDetail {
+  /// Native method-channel value for this detail level.
   String get value {
     switch (this) {
       case ApplePhotogrammetryDetail.preview:
@@ -19,10 +50,19 @@ extension ApplePhotogrammetryDetailValue on ApplePhotogrammetryDetail {
   }
 }
 
-enum ApplePhotogrammetryFeatureSensitivity { normal, high }
+/// Feature matching sensitivity used by RealityKit photogrammetry.
+enum ApplePhotogrammetryFeatureSensitivity {
+  /// Default feature sensitivity.
+  normal,
 
+  /// Higher sensitivity for low-texture or difficult subjects.
+  high,
+}
+
+/// Serialized values for [ApplePhotogrammetryFeatureSensitivity].
 extension ApplePhotogrammetryFeatureSensitivityValue
     on ApplePhotogrammetryFeatureSensitivity {
+  /// Native method-channel value for this feature sensitivity.
   String get value {
     switch (this) {
       case ApplePhotogrammetryFeatureSensitivity.normal:
@@ -33,10 +73,19 @@ extension ApplePhotogrammetryFeatureSensitivityValue
   }
 }
 
-enum ApplePhotogrammetrySampleOrdering { sequential, unordered }
+/// Ordering hint for selected photo samples.
+enum ApplePhotogrammetrySampleOrdering {
+  /// Photos are ordered around the subject.
+  sequential,
 
+  /// Photos may be in arbitrary order.
+  unordered,
+}
+
+/// Serialized values for [ApplePhotogrammetrySampleOrdering].
 extension ApplePhotogrammetrySampleOrderingValue
     on ApplePhotogrammetrySampleOrdering {
+  /// Native method-channel value for this sample ordering.
   String get value {
     switch (this) {
       case ApplePhotogrammetrySampleOrdering.sequential:
@@ -47,10 +96,22 @@ extension ApplePhotogrammetrySampleOrderingValue
   }
 }
 
-enum ApplePhotogrammetryTextureQuality { low, medium, high }
+/// User-facing reconstruction quality preset.
+enum ApplePhotogrammetryTextureQuality {
+  /// Lower quality and faster processing.
+  low,
 
+  /// Balanced quality and processing time.
+  medium,
+
+  /// Higher quality and slower processing.
+  high,
+}
+
+/// Serialized values for [ApplePhotogrammetryTextureQuality].
 extension ApplePhotogrammetryTextureQualityValue
     on ApplePhotogrammetryTextureQuality {
+  /// Native method-channel value for this texture quality.
   String get value {
     switch (this) {
       case ApplePhotogrammetryTextureQuality.low:
@@ -63,10 +124,19 @@ extension ApplePhotogrammetryTextureQualityValue
   }
 }
 
-enum ApplePhotogrammetryOutputFormat { usdz, obj }
+/// Output format requested from photo photogrammetry.
+enum ApplePhotogrammetryOutputFormat {
+  /// Generate a USDZ file.
+  usdz,
 
+  /// Generate OBJ assets.
+  obj,
+}
+
+/// Serialized values for [ApplePhotogrammetryOutputFormat].
 extension ApplePhotogrammetryOutputFormatValue
     on ApplePhotogrammetryOutputFormat {
+  /// Native method-channel value for this output format.
   String get value {
     switch (this) {
       case ApplePhotogrammetryOutputFormat.usdz:
@@ -77,7 +147,9 @@ extension ApplePhotogrammetryOutputFormatValue
   }
 }
 
+/// Options used for photo-based photogrammetry reconstruction.
 class ApplePhotogrammetryOptions {
+  /// Creates photogrammetry options with platform-safe defaults.
   const ApplePhotogrammetryOptions({
     this.detail = ApplePhotogrammetryDetail.reduced,
     this.featureSensitivity = ApplePhotogrammetryFeatureSensitivity.normal,
@@ -87,13 +159,25 @@ class ApplePhotogrammetryOptions {
     this.useObjectMasking = false,
   });
 
+  /// Requested RealityKit reconstruction detail.
   final ApplePhotogrammetryDetail detail;
+
+  /// Feature matching sensitivity for the reconstruction.
   final ApplePhotogrammetryFeatureSensitivity featureSensitivity;
+
+  /// Hint describing whether photos are ordered around the subject.
   final ApplePhotogrammetrySampleOrdering sampleOrdering;
+
+  /// User-facing quality preset used by the example and native layer.
   final ApplePhotogrammetryTextureQuality textureQuality;
+
+  /// Requested model output format.
   final ApplePhotogrammetryOutputFormat outputFormat;
+
+  /// Whether object masking should be enabled when supported.
   final bool useObjectMasking;
 
+  /// Converts this options object to a method-channel payload.
   Map<String, Object?> toMap() {
     return {
       'detail': detail.value,
@@ -106,7 +190,9 @@ class ApplePhotogrammetryOptions {
   }
 }
 
+/// Serialized values for [AppleSpatialCaptureFileType].
 extension AppleSpatialCaptureFileTypeValue on AppleSpatialCaptureFileType {
+  /// File extension value used by native preview calls.
   String get value {
     switch (this) {
       case AppleSpatialCaptureFileType.glb:
@@ -121,6 +207,7 @@ extension AppleSpatialCaptureFileTypeValue on AppleSpatialCaptureFileType {
   }
 }
 
+/// Infers a supported model file type from a path or URL extension.
 AppleSpatialCaptureFileType inferAppleSpatialCaptureFileType(String path) {
   final normalized = path.trim().toLowerCase();
   if (!normalized.contains('.')) {
@@ -140,26 +227,49 @@ AppleSpatialCaptureFileType inferAppleSpatialCaptureFileType(String path) {
   }
 }
 
+/// Feature availability reported by the current Apple device.
 class AppleSpatialCaptureSupport {
+  /// Creates a support status object.
   const AppleSpatialCaptureSupport({
     required this.photogrammetry,
     required this.lidar,
     required this.roomPlan,
   });
 
+  /// Whether photogrammetry capture or reconstruction is supported.
   final bool photogrammetry;
+
+  /// Whether LiDAR mesh capture is supported.
   final bool lidar;
+
+  /// Whether RoomPlan capture is supported.
   final bool roomPlan;
 }
 
+/// Progress stage emitted by native photogrammetry operations.
 enum AppleSpatialCaptureProgressStage {
+  /// The operation is preparing inputs.
   preparing,
+
+  /// The operation is ingesting selected images.
   ingesting,
+
+  /// The operation is reconstructing geometry or textures.
   processing,
+
+  /// The operation is finalizing output files.
   finalizing,
+
+  /// The operation completed successfully.
   completed,
+
+  /// The operation was cancelled.
   cancelled,
+
+  /// The operation failed.
   failed,
+
+  /// Informational status event.
   info,
 }
 
@@ -185,7 +295,9 @@ AppleSpatialCaptureProgressStage _progressStageFromString(String value) {
   }
 }
 
+/// Progress payload emitted by the native photogrammetry event stream.
 class AppleSpatialCaptureProgress {
+  /// Creates a progress event.
   const AppleSpatialCaptureProgress({
     required this.operation,
     required this.stage,
@@ -199,17 +311,37 @@ class AppleSpatialCaptureProgress {
     this.stepLabel,
   });
 
+  /// Native operation name.
   final String operation;
+
+  /// Current high-level progress stage.
   final AppleSpatialCaptureProgressStage stage;
+
+  /// Human-readable progress message.
   final String message;
+
+  /// Fractional progress in the range `0.0` to `1.0`, when available.
   final double? progress;
+
+  /// Estimated remaining seconds, when the native API provides it.
   final int? etaSeconds;
+
+  /// Elapsed seconds since the operation started, when available.
   final int? elapsedSeconds;
+
+  /// Optional caller-provided operation identifier.
   final String? operationId;
+
+  /// Current pipeline step index, when available.
   final int? stepIndex;
+
+  /// Total pipeline step count, when available.
   final int? stepTotal;
+
+  /// Human-readable pipeline step label, when available.
   final String? stepLabel;
 
+  /// Creates a progress event from a native method-channel map.
   factory AppleSpatialCaptureProgress.fromMap(Map<Object?, Object?> map) {
     final stageRaw = (map['stage'] as String? ?? 'info').trim().toLowerCase();
     final progressRaw = map['progress'];
@@ -238,15 +370,22 @@ class AppleSpatialCaptureProgress {
   }
 }
 
+/// Exception thrown by the plugin for platform and validation failures.
 class AppleSpatialCaptureError implements Exception {
+  /// Creates a plugin error.
   const AppleSpatialCaptureError({
     required this.code,
     required this.message,
     this.details,
   });
 
+  /// Stable error code.
   final String code;
+
+  /// Human-readable error message.
   final String message;
+
+  /// Optional platform-specific error details.
   final Object? details;
 
   @override
