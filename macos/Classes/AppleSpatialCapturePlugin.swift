@@ -250,7 +250,8 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
             }
             try copySelectedImagesToInputDirectory(
                 imagePaths: rawNormalizedPaths,
-                imagesDirectory: imagesDirectory
+                imagesDirectory: imagesDirectory,
+                operationId: operationId
             )
             emitProgress(
                 operationId: operationId,
@@ -320,17 +321,41 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
 
     private func copySelectedImagesToInputDirectory(
         imagePaths: [String],
-        imagesDirectory: URL
+        imagesDirectory: URL,
+        operationId: String?
     ) throws {
         let supportedExtensions: Set<String> = ["jpg", "jpeg", "heic", "heif", "png", "tif", "tiff"]
         var copiedCount = 0
 
         for (index, imagePath) in imagePaths.enumerated() {
             let sourceURL = URL(fileURLWithPath: imagePath)
-            guard FileManager.default.fileExists(atPath: sourceURL.path) else { continue }
+            let didStartAccessing = sourceURL.startAccessingSecurityScopedResource()
+            defer {
+                if didStartAccessing {
+                    sourceURL.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            do {
+                _ = try sourceURL.checkResourceIsReachable()
+            } catch {
+                emitProgress(
+                    operationId: operationId,
+                    stage: "info",
+                    message: "Could not access \(sourceURL.lastPathComponent): \(error.localizedDescription)"
+                )
+                continue
+            }
 
             let ext = sourceURL.pathExtension.lowercased()
-            guard supportedExtensions.contains(ext) else { continue }
+            guard supportedExtensions.contains(ext) else {
+                emitProgress(
+                    operationId: operationId,
+                    stage: "info",
+                    message: "Skipped unsupported file type: \(sourceURL.lastPathComponent)"
+                )
+                continue
+            }
 
             let destinationURL = imagesDirectory
                 .appendingPathComponent(String(format: "image_%04d", index + 1))
@@ -340,7 +365,16 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
                 try? FileManager.default.removeItem(at: destinationURL)
             }
 
-            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            do {
+                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            } catch {
+                emitProgress(
+                    operationId: operationId,
+                    stage: "info",
+                    message: "Could not copy \(sourceURL.lastPathComponent): \(error.localizedDescription)"
+                )
+                continue
+            }
             copiedCount += 1
         }
 
@@ -348,7 +382,7 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
             throw NSError(
                 domain: "ObjectCapture",
                 code: 1001,
-                userInfo: [NSLocalizedDescriptionKey: "Need at least 3 valid image files."]
+                userInfo: [NSLocalizedDescriptionKey: "Need at least 3 valid image files. Copied \(copiedCount) of \(imagePaths.count) selected file(s)."]
             )
         }
     }
@@ -942,6 +976,7 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
         stepIndex: Int? = nil,
         stepLabel: String? = nil
     ) {
+        NSLog("[AppleSpatialCapture][Photogrammetry] \(stage): \(message)")
         DispatchQueue.main.async {
             guard let sink = self.progressEventSink else { return }
             var payload: [String: Any] = [

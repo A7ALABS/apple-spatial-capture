@@ -60,59 +60,100 @@ struct ObjectCaptureFlowView: View {
     // MARK: - Subviews
 
     private var captureOverlay: some View {
-        VStack {
-            HStack {
-                Button(action: cancel) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 36, height: 36)
-                        .background(Color.black.opacity(0.55))
-                        .clipShape(Circle())
-                }
-                .padding(.leading, 20)
-                .padding(.top, 60)
-                Spacer()
-            }
-            Spacer()
-            VStack(spacing: 10) {
-                // Real-time feedback hint (e.g. "Move closer", "Too dark")
-                if let hint = feedbackHints.first {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .foregroundColor(.orange)
-                        Text(hint)
-                            .font(.footnote.weight(.medium))
-                            .foregroundColor(.white)
+        GeometryReader { geometry in
+            let isLandscape = geometry.size.width > geometry.size.height
+            let topPadding = max(geometry.safeAreaInsets.top + 12, 20)
+            let panelMaxWidth = isLandscape
+                ? max(340, geometry.size.width - 340)
+                : max(0, geometry.size.width - 40)
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
+                    cancelButton
+
+                    if isLandscape {
+                        scanControls(isLandscape: true, panelMaxWidth: panelMaxWidth)
+                    } else {
+                        Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color.black.opacity(0.65))
-                    .cornerRadius(20)
-                    .padding(.horizontal, 24)
-                    .transition(.opacity)
                 }
 
-                // Scan progress panel
-                scanProgressPanel
-
-                Button(primaryActionLabel) {
-                    primaryCaptureAction()
+                if !isLandscape {
+                    scanControls(isLandscape: false, panelMaxWidth: panelMaxWidth)
                 }
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 36)
-                    .padding(.vertical, 14)
-                    .background(Color.blue)
-                    .cornerRadius(14)
-                    .disabled(isPrimaryActionDisabled)
-                    .padding(.bottom, 50)
+
+                Spacer(minLength: 0)
             }
+            .padding(.top, topPadding)
+            .padding(.horizontal, 20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .animation(.easeInOut(duration: 0.25), value: feedbackHints)
         }
     }
 
-    private var scanProgressPanel: some View {
+    @ViewBuilder
+    private func scanControls(isLandscape: Bool, panelMaxWidth: CGFloat) -> some View {
+        if isLandscape {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 10) {
+                    feedbackHint
+                    scanProgressPanel(maxWidth: panelMaxWidth)
+                }
+
+                primaryCaptureButton
+            }
+        } else {
+            VStack(spacing: 10) {
+                feedbackHint
+                scanProgressPanel(maxWidth: panelMaxWidth)
+                primaryCaptureButton
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var feedbackHint: some View {
+        if let hint = feedbackHints.first {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundColor(.orange)
+                Text(hint)
+                    .font(.footnote.weight(.medium))
+                    .foregroundColor(.white)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(Color.black.opacity(0.65))
+            .cornerRadius(20)
+            .transition(.opacity)
+        }
+    }
+
+    private var cancelButton: some View {
+        Button(action: cancel) {
+            Image(systemName: "xmark")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 36, height: 36)
+                .background(Color.black.opacity(0.55))
+                .clipShape(Circle())
+        }
+    }
+
+    private var primaryCaptureButton: some View {
+        Button(primaryActionLabel) {
+            primaryCaptureAction()
+        }
+        .font(.headline)
+        .foregroundColor(.white)
+        .padding(.horizontal, 28)
+        .padding(.vertical, 14)
+        .background(Color.blue)
+        .cornerRadius(14)
+        .disabled(isPrimaryActionDisabled)
+    }
+
+    private func scanProgressPanel(maxWidth: CGFloat) -> some View {
         let fraction = min(Double(shotsTaken) / Double(max(maxShots, 1)), 1.0)
         let completed = scanPassCompleted
 
@@ -152,7 +193,7 @@ struct ObjectCaptureFlowView: View {
         .padding(14)
         .background(Color.black.opacity(0.65))
         .cornerRadius(14)
-        .padding(.horizontal, 20)
+        .frame(maxWidth: maxWidth, alignment: .leading)
     }
 
     private func feedbackMessage(_ feedback: ObjectCaptureSession.Feedback) -> String? {

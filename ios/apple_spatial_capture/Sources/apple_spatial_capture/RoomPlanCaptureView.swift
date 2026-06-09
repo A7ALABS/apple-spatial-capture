@@ -13,60 +13,96 @@ struct RoomPlanCaptureView: View {
             RoomCaptureViewRepresentable(coordinator: coordinator)
                 .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                HStack {
-                    Button(action: cancel) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: 36, height: 36)
-                            .background(Color.black.opacity(0.55))
-                            .clipShape(Circle())
+            captureOverlay
+        }
+        .onDisappear { coordinator.stop() }
+    }
+
+    private var captureOverlay: some View {
+        GeometryReader { geometry in
+            let isLandscape = geometry.size.width > geometry.size.height
+            let topPadding = max(geometry.safeAreaInsets.top + 12, 20)
+            let maxControlWidth = isLandscape
+                ? max(360, geometry.size.width - 160)
+                : max(0, geometry.size.width - 40)
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
+                    cancelButton
+
+                    if coordinator.isProcessing {
+                        processingView
+                    } else {
+                        scanControls(isLandscape: isLandscape)
+                            .frame(maxWidth: maxControlWidth, alignment: .leading)
                     }
-                    .padding(.leading, 20)
-                    .padding(.top, 60)
-                    Spacer()
-                }
-
-                Spacer()
-
-                if coordinator.isProcessing {
-                    processingView
-                        .padding(.bottom, 50)
-                } else {
-                    VStack(spacing: 12) {
-                        Text("Move slowly along walls and point at doors/windows")
-                            .font(.subheadline)
-                            .foregroundColor(.white)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 24)
-                            .padding(.vertical, 10)
-                            .background(Color.black.opacity(0.55))
-                            .cornerRadius(12)
-
-                        Button(action: finishAndExport) {
-                            Label("Finish Room Scan", systemImage: "square.and.arrow.down")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 36)
-                                .padding(.vertical, 14)
-                                .background(Color.green)
-                                .cornerRadius(14)
-                        }
-                    }
-                    .padding(.bottom, 50)
                 }
 
                 if let err = exportError {
                     Text(err)
                         .font(.footnote)
                         .foregroundColor(.red)
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.black.opacity(0.65))
+                        .cornerRadius(12)
                 }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.top, topPadding)
+            .padding(.horizontal, 20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    @ViewBuilder
+    private func scanControls(isLandscape: Bool) -> some View {
+        if isLandscape {
+            HStack(alignment: .center, spacing: 12) {
+                guidanceTooltip
+                finishRoomScanButton
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                guidanceTooltip
+                finishRoomScanButton
             }
         }
-        .onDisappear { coordinator.stop() }
+    }
+
+    private var cancelButton: some View {
+        Button(action: cancel) {
+            Image(systemName: "xmark")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 36, height: 36)
+                .background(Color.black.opacity(0.55))
+                .clipShape(Circle())
+        }
+    }
+
+    private var guidanceTooltip: some View {
+        Text("Move slowly along walls and point at doors/windows")
+            .font(.subheadline)
+            .foregroundColor(.white)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 10)
+            .background(Color.black.opacity(0.55))
+            .cornerRadius(12)
+    }
+
+    private var finishRoomScanButton: some View {
+        Button(action: finishAndExport) {
+            Label("Finish Room Scan", systemImage: "square.and.arrow.down")
+                .font(.headline)
+                .foregroundColor(.white)
+                .padding(.horizontal, 36)
+                .padding(.vertical, 14)
+                .background(Color.green)
+                .cornerRadius(14)
+        }
     }
 
     private var processingView: some View {

@@ -148,16 +148,28 @@ class _SpatialCaptureExampleScreenState
   Future<void> _startPhotoReconstruction() async {
     if (!_ensureSupported(_support?.photogrammetry, 'Photogrammetry')) return;
 
-    setState(() => _elapsedSeconds = null);
+    setState(() {
+      _errorMessage = null;
+      _progress = null;
+      _elapsedSeconds = null;
+      _lastModelPath = null;
+      _statusMessage = 'Opening photo picker...';
+      _progressLog
+        ..clear()
+        ..add('Opening photo picker...');
+    });
 
     List<XFile> images;
     try {
       images = await _imagePicker.pickMultiImage();
     } catch (error) {
       _setError('Could not open the photo library: $error');
+      _appendProgressLog('Photo picker failed: $error');
       return;
     }
     if (!mounted) return;
+
+    _appendProgressLog('Photo picker returned ${images.length} file(s).');
 
     final imagePaths = images
         .map((image) => image.path.trim())
@@ -166,6 +178,9 @@ class _SpatialCaptureExampleScreenState
 
     if (imagePaths.length < 3) {
       _setError('Select at least 3 images for photogrammetry.');
+      _appendProgressLog(
+        'Only ${imagePaths.length} usable image path(s) were selected.',
+      );
       return;
     }
 
@@ -186,7 +201,7 @@ class _SpatialCaptureExampleScreenState
       _lastModelPath = null;
       _statusMessage = 'Generating model from ${imagePaths.length} photos...';
       _progressLog
-        ..clear()
+        ..insert(0, 'Starting native photogrammetry...')
         ..add('Selected ${imagePaths.length} photos.');
     });
 
