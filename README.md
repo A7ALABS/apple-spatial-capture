@@ -427,7 +427,7 @@ Defaults in Dart:
 | `outputFormat` | `ApplePhotogrammetryOutputFormat.obj` |
 | `useObjectMasking` | `false` |
 
-Current iOS export uses reduced detail for on-device processing. Passing another `detail` value is accepted by Dart, but the native implementation falls back to reduced detail and emits an informational progress event.
+iOS and macOS export honor every `ApplePhotogrammetryDetail` level (`preview`, `reduced`, `medium`, `full`, `raw`). The requested detail is passed straight to `PhotogrammetrySession` on iOS 17+ and reported back in a progress event. Higher levels need more time and memory, so reconstruction may fail on lower-end devices when `full` or `raw` is requested.
 
 ## Listen to progress events
 

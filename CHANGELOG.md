@@ -1,3 +1,7 @@
+## 0.2.4
+
+- Fixed iOS photogrammetry export to honor the requested `ApplePhotogrammetryDetail` level instead of always falling back to reduced detail. All levels (`preview`, `reduced`, `medium`, `full`, `raw`) now map directly to `PhotogrammetrySession` on iOS 17+, matching macOS. The applied detail is reported in a progress event.
+
 ## 0.2.3
 
 - Added Swift Package Manager manifests for iOS and macOS.

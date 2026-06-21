@@ -28,8 +28,7 @@ import RoomPlan
         let useObjectMasking: Bool
         let textureQuality: TextureQualityProfile
         let outputFormat: OutputFormat
-        let requestedDetail: String
-        let didFallbackDetail: Bool
+        let detailLabel: String
     }
 
     private enum OutputFormat {
@@ -265,14 +264,6 @@ import RoomPlan
             from: args["options"] as? [String: Any]
         )
 
-        if options.didFallbackDetail {
-            emitProgress(
-                operationId: operationId,
-                stage: "info",
-                message: "Requested detail '\(options.requestedDetail)' is not available on this iOS runtime. Using reduced detail."
-            )
-        }
-
         guard rawNormalizedPaths.count >= 3 else {
             result(FlutterError(code: "INSUFFICIENT_IMAGES",
                                 message: "Select at least 3 photos to generate a model.",
@@ -292,7 +283,7 @@ import RoomPlan
         emitProgress(
             operationId: operationId,
             stage: "info",
-            message: "Texture quality: \(options.textureQuality.label). Output: \(options.outputFormat == .obj ? "OBJ" : "USDZ"). Object masking: \(options.useObjectMasking ? "On" : "Off")."
+            message: "Detail: \(options.detailLabel.capitalized). Texture quality: \(options.textureQuality.label). Output: \(options.outputFormat == .obj ? "OBJ" : "USDZ"). Object masking: \(options.useObjectMasking ? "On" : "Off")."
         )
 
         let outputDir = FileManager.default.temporaryDirectory
@@ -766,10 +757,37 @@ import RoomPlan
         let detailRaw = (raw?["detail"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        // iOS runtime currently supports reduced detail for on-device export here.
-        let detail: PhotogrammetrySession.Request.Detail = .reduced
-        let requestedDetail = detailRaw ?? "reduced"
-        let didFallbackDetail = requestedDetail != "reduced"
+        let textureQualityRaw = (raw?["textureQuality"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        // PhotogrammetrySession on iOS 17+ supports every reconstruction level,
+        // so honor the requested detail instead of forcing reduced.
+        let detail: PhotogrammetrySession.Request.Detail = {
+            switch detailRaw {
+            case "preview":
+                return .preview
+            case "medium":
+                return .medium
+            case "full":
+                return .full
+            case "raw":
+                return .raw
+            case "reduced":
+                return .reduced
+            case .none:
+                switch textureQualityRaw {
+                case "high":
+                    return .full
+                case "medium":
+                    return .medium
+                default:
+                    return .reduced
+                }
+            default:
+                return .reduced
+            }
+        }()
+        let detailLabel = detailRaw ?? "reduced"
 
         let featureRaw = (raw?["featureSensitivity"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -799,9 +817,6 @@ import RoomPlan
             }
         }()
 
-        let textureQualityRaw = (raw?["textureQuality"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
         let textureQuality: TextureQualityProfile = {
             switch textureQualityRaw {
             case "low":
@@ -848,8 +863,7 @@ import RoomPlan
             useObjectMasking: useObjectMasking,
             textureQuality: textureQuality,
             outputFormat: outputFormat,
-            requestedDetail: requestedDetail,
-            didFallbackDetail: didFallbackDetail
+            detailLabel: detailLabel
         )
     }
 
