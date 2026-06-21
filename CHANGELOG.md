@@ -1,6 +1,10 @@
-## 0.2.4
+## 0.2.5
 
-- Fixed iOS photogrammetry export to honor the requested `ApplePhotogrammetryDetail` level instead of always falling back to reduced detail. All levels (`preview`, `reduced`, `medium`, `full`, `raw`) now map directly to `PhotogrammetrySession` on iOS 17+, matching macOS. The applied detail is reported in a progress event.
+- Reverted the iOS detail mapping introduced in 0.2.4. Apple's `PhotogrammetrySession.Request.Detail` only exposes `.reduced` on iOS (`.preview`, `.medium`, `.full`, and `.raw` are macOS / Mac Catalyst only), so 0.2.4 failed to compile on iOS. iOS export again uses reduced detail and reports a fallback progress event when another level is requested. macOS continues to honor all detail levels.
+
+## 0.2.4 (retracted — broken on iOS)
+
+- Attempted to map all `ApplePhotogrammetryDetail` levels on iOS. This referenced `PhotogrammetrySession.Request.Detail` cases that do not exist on iOS and does not build. Use 0.2.5 or, on iOS, 0.2.3.
 
 ## 0.2.3
 
