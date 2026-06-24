@@ -132,13 +132,9 @@ struct LiDARMeshCaptureView: View {
         exportError = nil
         isSaving = true
         let anchors = coordinator.latestMeshAnchors
-        let effectiveViewportSize: CGSize = {
-            let viewport = coordinator.viewportSize
-            if viewport.width > 1, viewport.height > 1 {
-                return viewport
-            }
-            return UIScreen.main.bounds.size
-        }()
+        // Snapshot the colors accumulated across the whole scan (taken on the
+        // main thread; the closure reads an immutable copy off the main thread).
+        let colorProvider = coordinator.makeVertexColorProvider()
 
         DispatchQueue.global(qos: .userInitiated).async {
             let ext = MeshExporter.preferredExportExtension()
@@ -148,9 +144,7 @@ struct LiDARMeshCaptureView: View {
                 try MeshExporter.export(
                     meshAnchors: anchors,
                     to: outputURL,
-                    frame: coordinator.latestFrame,
-                    viewportSize: effectiveViewportSize,
-                    interfaceOrientation: coordinator.interfaceOrientation
+                    colorProvider: colorProvider
                 )
                 DispatchQueue.main.async {
                     completion(outputURL.path)
@@ -186,6 +180,9 @@ final class LiDARCoordinator: NSObject, ObservableObject, ARSessionDelegate {
     private var previewColorSampler: LiveFrameColorSampler?
     private var lastSamplerRefreshTime: TimeInterval = 0
     private static let samplerRefreshInterval: TimeInterval = 0.12
+    /// Per-vertex scan colors accumulated across all frames, keyed by world
+    /// position so they survive ARKit re-meshing. Used to color the export.
+    private let colorAccumulator = ColorAccumulator()
 
     func start(sceneView: ARSCNView) {
         self.sceneView = sceneView
@@ -198,6 +195,7 @@ final class LiDARCoordinator: NSObject, ObservableObject, ARSessionDelegate {
         latestFrame = sceneView.session.currentFrame
         previewColorSampler = nil
         lastSamplerRefreshTime = 0
+        colorAccumulator.reset()
 
         let config = ARWorldTrackingConfiguration()
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
@@ -267,11 +265,41 @@ final class LiDARCoordinator: NSObject, ObservableObject, ARSessionDelegate {
             guard let meshAnchor = anchor as? ARMeshAnchor else { continue }
             meshAnchorsById[meshAnchor.identifier] = meshAnchor
             upsertMeshNode(for: meshAnchor)
+            accumulateColors(for: meshAnchor)
             changed = true
         }
         if changed {
             publishMeshAnchorSnapshot()
         }
+    }
+
+    /// Folds the current camera frame's colors into the accumulator for the
+    /// vertices of `anchor` that are currently visible and depth-consistent.
+    /// Called as anchors are added/refined so coverage grows across the scan.
+    private func accumulateColors(for anchor: ARMeshAnchor) {
+        guard let sampler = previewColorSampler else { return }
+        let mesh = anchor.geometry
+        let vertexCount = mesh.vertices.count
+        let vertexStride = mesh.vertices.stride
+        let vertexPointer = mesh.vertices.buffer.contents().advanced(by: mesh.vertices.offset)
+        let transform = anchor.transform
+
+        for i in 0..<vertexCount {
+            let ptr = vertexPointer.advanced(by: i * vertexStride)
+            let x = ptr.load(as: Float.self)
+            let y = ptr.advanced(by: MemoryLayout<Float>.size).load(as: Float.self)
+            let z = ptr.advanced(by: MemoryLayout<Float>.size * 2).load(as: Float.self)
+
+            let world = transform * SIMD4<Float>(x, y, z, 1)
+            let worldPos = SIMD3<Float>(world.x, world.y, world.z)
+            guard let sample = sampler.sampleColorAndWeight(worldPosition: worldPos) else { continue }
+            colorAccumulator.ingest(color: sample.color, at: worldPos, weight: sample.weight)
+        }
+    }
+
+    /// Snapshots the accumulated colors into a lock-free lookup for export.
+    func makeVertexColorProvider() -> MeshExporter.VertexColorProvider {
+        colorAccumulator.makeLookup()
     }
 
     private func publishMeshAnchorSnapshot() {
@@ -448,6 +476,9 @@ private final class LiveFrameColorSampler {
     private let colorWidth: Int
     private let colorHeight: Int
     private let colorRowBytes: Int
+    private let depthValues: [Float]?
+    private let depthWidth: Int
+    private let depthHeight: Int
 
     init?(frame: ARFrame?, viewportSize: CGSize, interfaceOrientation: UIInterfaceOrientation) {
         guard
@@ -475,13 +506,44 @@ private final class LiveFrameColorSampler {
         self.colorWidth = rasterized.width
         self.colorHeight = rasterized.height
         self.colorRowBytes = rasterized.rowBytes
+
+        if let depth = Self.extractDepthValues(from: frame) {
+            self.depthValues = depth.values
+            self.depthWidth = depth.width
+            self.depthHeight = depth.height
+        } else {
+            self.depthValues = nil
+            self.depthWidth = 0
+            self.depthHeight = 0
+        }
     }
 
+    /// Live on-screen preview color (no depth gating, to maximize coverage).
     func sampleColor(worldPosition: SIMD3<Float>) -> SIMD3<Float>? {
-        guard let imagePoint = projectImagePoint(worldPosition: worldPosition) else {
+        guard let projection = projectImagePoint(worldPosition: worldPosition) else {
             return nil
         }
+        return colorAt(imagePoint: projection.imagePoint)
+    }
 
+    /// Export-quality sample: depth-gated to reject occluded surfaces, returning
+    /// a confidence weight (closer surfaces win) for accumulation.
+    func sampleColorAndWeight(worldPosition: SIMD3<Float>) -> (color: SIMD3<Float>, weight: Float)? {
+        guard let projection = projectImagePoint(worldPosition: worldPosition) else {
+            return nil
+        }
+        guard isDepthConsistent(
+            projectedDepth: projection.depthMeters,
+            imagePoint: projection.imagePoint
+        ) else {
+            return nil
+        }
+        guard let color = colorAt(imagePoint: projection.imagePoint) else { return nil }
+        let weight = projection.depthMeters > 0 ? 1.0 / projection.depthMeters : 0
+        return (color, weight)
+    }
+
+    private func colorAt(imagePoint: CGPoint) -> SIMD3<Float>? {
         let px = max(0, min(colorWidth - 1, Int(imagePoint.x * CGFloat(colorWidth - 1))))
         let py = max(0, min(colorHeight - 1, Int(imagePoint.y * CGFloat(colorHeight - 1))))
         let offset = py * colorRowBytes + (px * 4)
@@ -493,7 +555,7 @@ private final class LiveFrameColorSampler {
         return SIMD3<Float>(r, g, b)
     }
 
-    private func projectImagePoint(worldPosition: SIMD3<Float>) -> CGPoint? {
+    private func projectImagePoint(worldPosition: SIMD3<Float>) -> (imagePoint: CGPoint, depthMeters: Float)? {
         let cameraSpace = frame.camera.transform.inverse * SIMD4<Float>(
             worldPosition.x,
             worldPosition.y,
@@ -502,6 +564,7 @@ private final class LiveFrameColorSampler {
         )
         // ARKit camera looks toward negative Z in camera space.
         if cameraSpace.z >= 0 { return nil }
+        let depthMeters = -cameraSpace.z
 
         let projected = frame.camera.projectPoint(
             worldPosition,
@@ -520,7 +583,27 @@ private final class LiveFrameColorSampler {
         if imagePoint.x < 0 || imagePoint.x > 1 || imagePoint.y < 0 || imagePoint.y > 1 {
             return nil
         }
-        return imagePoint
+        return (imagePoint, depthMeters)
+    }
+
+    /// Rejects samples where the projected vertex is farther than the measured
+    /// LiDAR depth at that pixel (i.e. the vertex is occluded in this view).
+    private func isDepthConsistent(projectedDepth: Float, imagePoint: CGPoint) -> Bool {
+        guard
+            let depthValues,
+            depthWidth > 0,
+            depthHeight > 0
+        else { return true }
+
+        let dx = max(0, min(depthWidth - 1, Int(imagePoint.x * CGFloat(depthWidth - 1))))
+        let dy = max(0, min(depthHeight - 1, Int(imagePoint.y * CGFloat(depthHeight - 1))))
+        let idx = dy * depthWidth + dx
+        guard idx >= 0, idx < depthValues.count else { return false }
+
+        let sampledDepth = depthValues[idx]
+        guard sampledDepth.isFinite, sampledDepth > 0 else { return false }
+
+        return abs(sampledDepth - projectedDepth) <= 0.18
     }
 
     private static func rasterizeRGBA(from image: CGImage) -> (pixels: [UInt8], width: Int, height: Int, rowBytes: Int)? {
@@ -553,6 +636,129 @@ private final class LiveFrameColorSampler {
 
         guard didDraw else { return nil }
         return (pixels, width, height, rowBytes)
+    }
+
+    private static func extractDepthValues(from frame: ARFrame) -> (values: [Float], width: Int, height: Int)? {
+        let depthMap = frame.smoothedSceneDepth?.depthMap ?? frame.sceneDepth?.depthMap
+        guard let depthMap else { return nil }
+
+        CVPixelBufferLockBaseAddress(depthMap, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(depthMap, .readOnly) }
+
+        let width = CVPixelBufferGetWidth(depthMap)
+        let height = CVPixelBufferGetHeight(depthMap)
+        guard width > 0, height > 0 else { return nil }
+
+        let rowBytes = CVPixelBufferGetBytesPerRow(depthMap)
+        let stride = rowBytes / MemoryLayout<Float32>.size
+        guard
+            let base = CVPixelBufferGetBaseAddress(depthMap)?
+                .assumingMemoryBound(to: Float32.self)
+        else {
+            return nil
+        }
+
+        var values = [Float](repeating: 0, count: width * height)
+        for y in 0..<height {
+            let srcRow = base.advanced(by: y * stride)
+            let destOffset = y * width
+            for x in 0..<width {
+                values[destOffset + x] = srcRow[x]
+            }
+        }
+        return (values, width, height)
+    }
+}
+
+/// Thread-safe accumulation of per-vertex scan colors keyed by a coarse world
+/// voxel. Keying by world position (instead of vertex index) means colors
+/// survive ARKit's continuous re-meshing, so the whole scan can be colored at
+/// export time rather than from a single final frame.
+private final class ColorAccumulator {
+    private let voxelSize: Float
+    // 21 bits per axis packed into a 64-bit key; biased so quantized negative
+    // coordinates stay non-negative within a realistic (±~20 m) scan volume.
+    private static let bias: Int64 = 1 << 20
+    private static let mask: Int64 = (1 << 21) - 1
+
+    private var voxels: [Int64: (color: SIMD3<Float>, weight: Float)] = [:]
+    private let lock = NSLock()
+
+    init(voxelSize: Float = 0.02) {
+        self.voxelSize = voxelSize
+    }
+
+    func ingest(color: SIMD3<Float>, at worldPosition: SIMD3<Float>, weight: Float) {
+        let k = Self.key(for: worldPosition, voxelSize: voxelSize)
+        lock.lock()
+        if let existing = voxels[k] {
+            if weight > existing.weight {
+                voxels[k] = (color, weight)
+            }
+        } else {
+            voxels[k] = (color, weight)
+        }
+        lock.unlock()
+    }
+
+    func reset() {
+        lock.lock()
+        voxels.removeAll(keepingCapacity: false)
+        lock.unlock()
+    }
+
+    /// Returns a lock-free lookup over an immutable snapshot of the grid, safe to
+    /// call from a background export thread. Falls back to the 3×3×3 neighborhood
+    /// to tolerate sub-voxel drift between accumulation and export transforms.
+    func makeLookup() -> (SIMD3<Float>) -> SIMD3<Float>? {
+        lock.lock()
+        let snapshot = voxels
+        lock.unlock()
+        let size = voxelSize
+
+        return { pos in
+            let qx = Self.quantize(pos.x, voxelSize: size)
+            let qy = Self.quantize(pos.y, voxelSize: size)
+            let qz = Self.quantize(pos.z, voxelSize: size)
+
+            if let exact = snapshot[Self.pack(qx, qy, qz)] {
+                return exact.color
+            }
+            var best: (color: SIMD3<Float>, weight: Float)?
+            for dz in -1...1 {
+                for dy in -1...1 {
+                    for dx in -1...1 {
+                        if dx == 0, dy == 0, dz == 0 { continue }
+                        let key = Self.pack(qx + Int64(dx), qy + Int64(dy), qz + Int64(dz))
+                        if let candidate = snapshot[key],
+                           best == nil || candidate.weight > best!.weight {
+                            best = candidate
+                        }
+                    }
+                }
+            }
+            return best?.color
+        }
+    }
+
+    private static func quantize(_ value: Float, voxelSize: Float) -> Int64 {
+        let q = Int64((value / voxelSize).rounded()) + bias
+        return min(max(q, 0), mask)
+    }
+
+    private static func pack(_ qx: Int64, _ qy: Int64, _ qz: Int64) -> Int64 {
+        let cx = min(max(qx, 0), mask)
+        let cy = min(max(qy, 0), mask)
+        let cz = min(max(qz, 0), mask)
+        return cx | (cy << 21) | (cz << 42)
+    }
+
+    private static func key(for position: SIMD3<Float>, voxelSize: Float) -> Int64 {
+        pack(
+            quantize(position.x, voxelSize: voxelSize),
+            quantize(position.y, voxelSize: voxelSize),
+            quantize(position.z, voxelSize: voxelSize)
+        )
     }
 }
 

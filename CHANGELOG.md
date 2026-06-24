@@ -1,3 +1,7 @@
+## 0.2.6
+
+- Fixed LiDAR mesh scans exporting without color. Per-vertex colors are now accumulated across the whole scan (keyed by world position so they survive ARKit's continuous re-meshing) and baked into the model as embedded vertex colors (USD `displayColor`), instead of projecting a single final camera frame onto an external texture that ModelIO frequently failed to package into the USDZ. Export failures are now surfaced instead of silently producing an uncolored mesh.
+
 ## 0.2.5
 
 - Reverted the iOS detail mapping introduced in 0.2.4. Apple's `PhotogrammetrySession.Request.Detail` only exposes `.reduced` on iOS (`.preview`, `.medium`, `.full`, and `.raw` are macOS / Mac Catalyst only), so 0.2.4 failed to compile on iOS. iOS export again uses reduced detail and reports a fallback progress event when another level is requested. macOS continues to honor all detail levels.
