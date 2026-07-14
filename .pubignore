@@ -6,3 +6,8 @@
 build/
 **/build/
 ios/apple_spatial_capture/.build
+
+# Full-res source images used nowhere in README or pubspec screenshots
+# (~21 MB). The README shows the smaller *-readme.png thumbnails instead.
+screenshots/object-capture/results/object-capture-result.png
+screenshots/object-capture/results/object-capture-result-2.png
