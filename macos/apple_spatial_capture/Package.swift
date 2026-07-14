@@ -13,10 +13,28 @@ let package = Package(
         .package(name: "FlutterFramework", path: "../FlutterFramework")
     ],
     targets: [
+        // Vendored msplat Gaussian-splatting training engine (Apache 2.0,
+        // https://github.com/rayanht/msplat). Static C library over Metal.
+        .binaryTarget(
+            name: "MsplatCore",
+            path: "MsplatCore.xcframework"
+        ),
         .target(
             name: "apple_spatial_capture",
             dependencies: [
-                .product(name: "FlutterFramework", package: "FlutterFramework")
+                .product(name: "FlutterFramework", package: "FlutterFramework"),
+                "MsplatCore"
+            ],
+            resources: [
+                .copy("Resources/default.metallib")
+            ],
+            linkerSettings: [
+                .linkedLibrary("c++"),
+                .linkedFramework("Metal"),
+                .linkedFramework("MetalKit"),
+                .linkedFramework("MetalPerformanceShaders"),
+                .linkedFramework("ImageIO"),
+                .linkedFramework("CoreGraphics")
             ]
         )
     ]

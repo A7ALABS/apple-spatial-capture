@@ -192,6 +192,15 @@ final class RoomPlanCoordinator: NSObject, ObservableObject, RoomCaptureViewDele
 
         do {
             try processedResult.export(to: exportURL, exportOptions: .model)
+            // Sibling parametric export (walls/doors/windows/objects with
+            // dimensions + transforms) so clients can derive measured 2D
+            // floorplans. Same basename, .json extension; failure here must
+            // not fail the model export.
+            let jsonURL = exportURL.deletingPathExtension()
+                .appendingPathExtension("json")
+            if let jsonData = try? JSONEncoder().encode(processedResult) {
+                try? jsonData.write(to: jsonURL)
+            }
             DispatchQueue.main.async {
                 self.isProcessing = false
                 self.completion?(.success(exportURL.path))

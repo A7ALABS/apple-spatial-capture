@@ -134,6 +134,62 @@ import RoomPlan
         case "startLiDARCapture":
             startLiDARCapture(result: result)
 
+        // --- Gaussian splat dataset capture (iOS 14+, ARKit world tracking) ---
+        case "isGaussianSplatCaptureSupported":
+            if #available(iOS 14.0, *) {
+                result(ARWorldTrackingConfiguration.isSupported)
+            } else {
+                result(false)
+            }
+
+        case "startGaussianSplatCapture":
+            startGaussianSplatCapture(call: call, result: result)
+
+        case "shareGaussianSplatDataset":
+            shareGaussianSplatDataset(call: call, result: result)
+
+        case "isGaussianSplatTrainingSupported":
+            result(GaussianSplatTraining.isSupported)
+
+        case "listGaussianSplatDatasets":
+            result(Self.listGaussianSplatDatasets())
+
+        case "trainGaussianSplat":
+            trainGaussianSplat(call: call, result: result)
+
+        case "cancelGaussianSplatTraining":
+            result(GaussianSplatTraining.requestCancel())
+
+        case "previewGaussianSplat":
+            previewGaussianSplat(call: call, result: result)
+
+        case "openSplatViewport":
+            SplatViewportChannel.open(call, result: result)
+
+        case "openSplatPlyViewport":
+            SplatViewportChannel.openPly(call, result: result)
+
+        case "renderSplatViewport":
+            SplatViewportChannel.render(call, result: result)
+
+        case "closeSplatViewport":
+            SplatViewportChannel.close(call, result: result)
+
+        case "cleanupSplatViewport":
+            SplatViewportChannel.cleanup(call, result: result)
+
+        case "cropSplatViewport":
+            SplatViewportChannel.crop(call, result: result)
+
+        case "snapshotSplatViewport":
+            SplatViewportChannel.snapshot(call, result: result)
+
+        case "restoreSplatViewport":
+            SplatViewportChannel.restore(call, result: result)
+
+        case "saveSplatViewportEdits":
+            SplatViewportChannel.saveEdits(call, result: result)
+
         case "previewCapturedModel":
             previewCapturedModel(call: call, result: result)
 
@@ -729,12 +785,13 @@ import RoomPlan
         etaSeconds: Int? = nil,
         elapsedSeconds: Int? = nil,
         stepIndex: Int? = nil,
-        stepLabel: String? = nil
+        stepLabel: String? = nil,
+        operation: String = "photogrammetry_from_images"
     ) {
         DispatchQueue.main.async {
             guard let sink = self.progressEventSink else { return }
             var payload: [String: Any] = [
-                "operation": "photogrammetry_from_images",
+                "operation": operation,
                 "stage": stage,
                 "message": message
             ]
@@ -928,6 +985,324 @@ import RoomPlan
         }
     }
 
+
+    // MARK: - Gaussian Splat Dataset
+
+    private func startGaussianSplatCapture(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard #available(iOS 14.0, *) else {
+            result(FlutterError(code: "UNSUPPORTED",
+                                message: "Gaussian splat capture requires iOS 14.0+.",
+                                details: nil))
+            return
+        }
+        guard ARWorldTrackingConfiguration.isSupported else {
+            result(FlutterError(code: "UNSUPPORTED",
+                                message: "ARKit world tracking is not available on this device.",
+                                details: nil))
+            return
+        }
+
+        let args = call.arguments as? [String: Any]
+        let options = GaussianSplatCaptureOptions.parse(from: args?["options"] as? [String: Any])
+
+        DispatchQueue.main.async {
+            guard let rootVC = self.topViewController() else {
+                result(FlutterError(code: "NO_VC", message: "No root view controller.", details: nil))
+                return
+            }
+
+            if #available(iOS 14.0, *) {
+                var hostingVC: UIHostingController<GaussianSplatCaptureView>?
+                let view = GaussianSplatCaptureView(options: options) { payload in
+                    DispatchQueue.main.async {
+                        let currentHostingVC = hostingVC
+                        let finish: () -> Void = {
+                            result(payload)
+                            hostingVC = nil
+                        }
+
+                        guard let currentHostingVC = currentHostingVC else {
+                            finish()
+                            return
+                        }
+
+                        currentHostingVC.dismiss(animated: true) {
+                            finish()
+                        }
+                    }
+                }
+                let vc = UIHostingController(rootView: view)
+                vc.modalPresentationStyle = .fullScreen
+                vc.isModalInPresentation = true
+                hostingVC = vc
+                rootVC.present(vc, animated: true)
+            }
+        }
+    }
+
+    /// Lists captured dataset folders under Documents/GaussianSplatDatasets,
+    /// newest first, so apps can offer a picker instead of a typed path.
+    static func listGaussianSplatDatasets() -> [String] {
+        guard let documentsURL = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return []
+        }
+        let rootURL = documentsURL.appendingPathComponent(
+            "GaussianSplatDatasets",
+            isDirectory: true
+        )
+        let keys: [URLResourceKey] = [.isDirectoryKey, .contentModificationDateKey]
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: rootURL,
+            includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        return contents
+            .compactMap { url -> (URL, Date)? in
+                guard
+                    let values = try? url.resourceValues(forKeys: Set(keys)),
+                    values.isDirectory == true
+                else { return nil }
+                return (url, values.contentModificationDate ?? .distantPast)
+            }
+            .sorted { $0.1 > $1.1 }
+            .map { $0.0.path }
+    }
+
+    /// Trains a Gaussian splat on-device from a captured dataset using the
+    /// vendored msplat Metal engine, streaming progress over the event
+    /// channel. Experimental on iOS.
+    private func trainGaussianSplat(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard
+            let args = call.arguments as? [String: Any],
+            let datasetPath = (args["datasetPath"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !datasetPath.isEmpty
+        else {
+            result(FlutterError(code: "INVALID_ARGS",
+                                message: "Missing dataset path.",
+                                details: nil))
+            return
+        }
+
+        guard GaussianSplatTraining.isSupported else {
+            result(FlutterError(code: "UNSUPPORTED",
+                                message: "Gaussian splat training is not supported on this device.",
+                                details: nil))
+            return
+        }
+
+        let operationId = (args["operationId"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let options = GaussianSplatTrainingOptions.parse(
+            from: args["options"] as? [String: Any]
+        )
+
+        let startDate = Date()
+        emitProgress(
+            operationId: operationId,
+            stage: "preparing",
+            message: "Loading dataset for splat training...",
+            progress: 0.0,
+            operation: "gaussian_splat_training"
+        )
+
+        GaussianSplatTraining.train(
+            datasetPath: datasetPath,
+            options: options,
+            notice: { [weak self] message in
+                self?.emitProgress(
+                    operationId: operationId,
+                    stage: "info",
+                    message: message,
+                    operation: "gaussian_splat_training"
+                )
+            },
+            progress: { [weak self] update in
+                let fraction = Double(update.iteration) / Double(max(1, update.totalIterations))
+                let remaining = Double(update.totalIterations - update.iteration)
+                    * Double(update.msPerStep) / 1000.0
+                self?.emitProgress(
+                    operationId: operationId,
+                    stage: "processing",
+                    message: "Training splat: \(update.splatCount) gaussians",
+                    progress: fraction,
+                    etaSeconds: update.msPerStep > 0 ? Int(remaining.rounded()) : nil,
+                    elapsedSeconds: self?.elapsedSeconds(since: startDate),
+                    operation: "gaussian_splat_training"
+                )
+            },
+            completion: { [weak self] outcome in
+                DispatchQueue.main.async {
+                    switch outcome {
+                    case .success(let payload):
+                        self?.emitProgress(
+                            operationId: operationId,
+                            stage: "completed",
+                            message: "Splat training complete.",
+                            progress: 1.0,
+                            elapsedSeconds: self?.elapsedSeconds(since: startDate),
+                            operation: "gaussian_splat_training"
+                        )
+                        result(payload)
+                    case .failure(let error):
+                        self?.emitProgress(
+                            operationId: operationId,
+                            stage: "failed",
+                            message: error.localizedDescription,
+                            operation: "gaussian_splat_training"
+                        )
+                        let code = (error as NSError)
+                            .userInfo[GaussianSplatTraining.errorCodeKey] as? String
+                        result(FlutterError(code: code ?? "TRAINING_FAILED",
+                                            message: error.localizedDescription,
+                                            details: nil))
+                    }
+                }
+            }
+        )
+    }
+
+    /// Opens the interactive splat viewer for a trained dataset (renders the
+    /// saved training checkpoint through the vendored msplat engine).
+    private func previewGaussianSplat(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard
+            let args = call.arguments as? [String: Any],
+            let datasetPath = (args["datasetPath"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !datasetPath.isEmpty
+        else {
+            result(FlutterError(code: "INVALID_ARGS",
+                                message: "Missing dataset path.",
+                                details: nil))
+            return
+        }
+
+        #if canImport(MsplatCore)
+        guard #available(iOS 16.0, *), GaussianSplatPreview.isSupported else {
+            result(FlutterError(code: "UNSUPPORTED",
+                                message: "Gaussian splat preview is not supported on this device.",
+                                details: nil))
+            return
+        }
+        if let validationError = GaussianSplatPreview.validatePreviewable(datasetPath: datasetPath) {
+            result(FlutterError(code: "NOT_PREVIEWABLE",
+                                message: validationError.localizedDescription,
+                                details: nil))
+            return
+        }
+
+        DispatchQueue.main.async {
+            guard let rootVC = self.topViewController() else {
+                result(FlutterError(code: "NO_VC", message: "No root view controller.", details: nil))
+                return
+            }
+            let viewer = GaussianSplatPreviewViewController(datasetPath: datasetPath)
+            viewer.modalPresentationStyle = .fullScreen
+            rootVC.present(viewer, animated: true) {
+                result(true)
+            }
+        }
+        #else
+        result(FlutterError(code: "UNSUPPORTED",
+                            message: "Gaussian splat preview is not available in this build of the plugin.",
+                            details: nil))
+        #endif
+    }
+
+    /// Zips a captured dataset folder and presents the system share sheet
+    /// (AirDrop, Files, iCloud Drive, …). Resolves with true when the user
+    /// completed a share action, false when the sheet was dismissed.
+    private func shareGaussianSplatDataset(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard
+            let args = call.arguments as? [String: Any],
+            let rawPath = args["path"] as? String
+        else {
+            result(FlutterError(code: "INVALID_ARGS",
+                                message: "Missing dataset path.",
+                                details: nil))
+            return
+        }
+
+        let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let folderURL = URL(fileURLWithPath: path)
+        var isDirectory: ObjCBool = false
+        guard
+            !path.isEmpty,
+            FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDirectory),
+            isDirectory.boolValue
+        else {
+            result(FlutterError(code: "FILE_NOT_FOUND",
+                                message: "Dataset folder does not exist.",
+                                details: nil))
+            return
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let zipURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("\(folderURL.lastPathComponent).zip")
+            try? FileManager.default.removeItem(at: zipURL)
+
+            // Coordinated "for uploading" reads of a directory hand back a
+            // zipped copy — no archiving dependency needed.
+            var coordinatorError: NSError?
+            var copyError: Error?
+            var archived = false
+            NSFileCoordinator().coordinate(
+                readingItemAt: folderURL,
+                options: [.forUploading],
+                error: &coordinatorError
+            ) { archiveURL in
+                do {
+                    try FileManager.default.copyItem(at: archiveURL, to: zipURL)
+                    archived = true
+                } catch {
+                    copyError = error
+                }
+            }
+
+            DispatchQueue.main.async {
+                guard archived else {
+                    let message = coordinatorError?.localizedDescription
+                        ?? copyError?.localizedDescription
+                        ?? "Could not archive the dataset."
+                    result(FlutterError(code: "ZIP_FAILED", message: message, details: nil))
+                    return
+                }
+                guard let rootVC = self.topViewController() else {
+                    result(FlutterError(code: "NO_VC", message: "No root view controller.", details: nil))
+                    return
+                }
+
+                let activityVC = UIActivityViewController(
+                    activityItems: [zipURL],
+                    applicationActivities: nil
+                )
+                activityVC.completionWithItemsHandler = { _, completed, _, activityError in
+                    if let activityError {
+                        result(FlutterError(code: "SHARE_FAILED",
+                                            message: activityError.localizedDescription,
+                                            details: nil))
+                    } else {
+                        result(completed)
+                    }
+                }
+                if let popover = activityVC.popoverPresentationController {
+                    popover.sourceView = rootVC.view
+                    popover.sourceRect = CGRect(
+                        x: rootVC.view.bounds.midX,
+                        y: rootVC.view.bounds.midY,
+                        width: 1,
+                        height: 1
+                    )
+                    popover.permittedArrowDirections = []
+                }
+                rootVC.present(activityVC, animated: true)
+            }
+        }
+    }
 
     // MARK: - RoomPlan
 
