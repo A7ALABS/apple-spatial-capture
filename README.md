@@ -152,6 +152,29 @@ For macOS, set the deployment target to at least `12.0`. macOS supports reconstr
 
 Use `AppleSpatialCapture.platform` for all operations:
 
+For the Gaussian-splatting workflow specifically, prefer the cohesive
+`AppleSpatialCapture.gaussianSplat` facade, which groups capture, training,
+preview and the embedded editable viewport in one place (the flat platform
+methods remain available for advanced use):
+
+```dart
+final splat = AppleSpatialCapture.gaussianSplat;
+
+final dataset = await splat.capture();                  // AR capture flow
+final result  = await splat.train(datasetPath: dataset!.datasetPath);
+await splat.preview(dataset.datasetPath);               // full-screen viewer
+
+// Embedded, editable viewport (a stateful handle instead of a session id):
+final viewport = await splat.openViewport(dataset.datasetPath);
+final frame = await viewport.renderFrame(azimuth: 0.4); // JPEG bytes
+await viewport.crop(keepFraction: 0.8);
+await viewport.saveEdits();
+await viewport.close();
+```
+
+A `.ply` opened with `splat.openPlyViewport(...)` is view-only; calling an edit
+method on it throws instead of reaching the native layer.
+
 ```dart
 final capture = AppleSpatialCapture.platform;
 ```

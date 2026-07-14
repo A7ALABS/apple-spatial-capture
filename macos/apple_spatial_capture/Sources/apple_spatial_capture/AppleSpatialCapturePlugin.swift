@@ -107,6 +107,10 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
     }
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        // Gaussian-splatting methods are routed together (see the router)
+        // so this dispatch stays focused on photogrammetry and previews.
+        if handleGaussianSplatMethod(call, result: result) { return }
+
         switch call.method {
         case "isObjectCaptureSupported", "isSupported":
             if #available(macOS 12.0, *) {
@@ -125,57 +129,8 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
                 details: nil
             ))
 
-        case "isLiDARSupported", "isRoomPlanSupported", "isGaussianSplatCaptureSupported":
+        case "isLiDARSupported", "isRoomPlanSupported":
             result(false)
-
-        case "startGaussianSplatCapture", "shareGaussianSplatDataset":
-            result(FlutterError(
-                code: "UNSUPPORTED",
-                message: "Gaussian splat dataset capture is available on supported iOS and iPadOS devices.",
-                details: nil
-            ))
-
-        case "isGaussianSplatTrainingSupported":
-            result(GaussianSplatTraining.isSupported)
-
-        case "listGaussianSplatDatasets":
-            result(Self.listGaussianSplatDatasets())
-
-        case "trainGaussianSplat":
-            trainGaussianSplat(call: call, result: result)
-
-        case "cancelGaussianSplatTraining":
-            result(GaussianSplatTraining.requestCancel())
-
-        case "previewGaussianSplat":
-            previewGaussianSplat(call: call, result: result)
-
-        case "openSplatViewport":
-            SplatViewportChannel.open(call, result: result)
-
-        case "openSplatPlyViewport":
-            SplatViewportChannel.openPly(call, result: result)
-
-        case "renderSplatViewport":
-            SplatViewportChannel.render(call, result: result)
-
-        case "closeSplatViewport":
-            SplatViewportChannel.close(call, result: result)
-
-        case "cleanupSplatViewport":
-            SplatViewportChannel.cleanup(call, result: result)
-
-        case "cropSplatViewport":
-            SplatViewportChannel.crop(call, result: result)
-
-        case "snapshotSplatViewport":
-            SplatViewportChannel.snapshot(call, result: result)
-
-        case "restoreSplatViewport":
-            SplatViewportChannel.restore(call, result: result)
-
-        case "saveSplatViewportEdits":
-            SplatViewportChannel.saveEdits(call, result: result)
 
         case "startLiDARCapture":
             result(FlutterError(
@@ -200,6 +155,59 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
         default:
             result(FlutterMethodNotImplemented)
         }
+    }
+
+    // MARK: - Gaussian Splat routing
+
+    /// Routes every Gaussian-splatting method — training, full-screen
+    /// preview, and the embedded viewport channel — in one place. Capture and
+    /// sharing are iOS-only and report UNSUPPORTED here. Returns true when
+    /// `call` was a splat method and has been answered via `result`.
+    private func handleGaussianSplatMethod(
+        _ call: FlutterMethodCall,
+        result: @escaping FlutterResult
+    ) -> Bool {
+        switch call.method {
+        case "isGaussianSplatCaptureSupported":
+            result(false)
+        case "startGaussianSplatCapture", "shareGaussianSplatDataset":
+            result(FlutterError(
+                code: "UNSUPPORTED",
+                message: "Gaussian splat dataset capture is available on supported iOS and iPadOS devices.",
+                details: nil
+            ))
+        case "isGaussianSplatTrainingSupported":
+            result(GaussianSplatTraining.isSupported)
+        case "listGaussianSplatDatasets":
+            result(Self.listGaussianSplatDatasets())
+        case "trainGaussianSplat":
+            trainGaussianSplat(call: call, result: result)
+        case "cancelGaussianSplatTraining":
+            result(GaussianSplatTraining.requestCancel())
+        case "previewGaussianSplat":
+            previewGaussianSplat(call: call, result: result)
+        case "openSplatViewport":
+            SplatViewportChannel.open(call, result: result)
+        case "openSplatPlyViewport":
+            SplatViewportChannel.openPly(call, result: result)
+        case "renderSplatViewport":
+            SplatViewportChannel.render(call, result: result)
+        case "closeSplatViewport":
+            SplatViewportChannel.close(call, result: result)
+        case "cleanupSplatViewport":
+            SplatViewportChannel.cleanup(call, result: result)
+        case "cropSplatViewport":
+            SplatViewportChannel.crop(call, result: result)
+        case "snapshotSplatViewport":
+            SplatViewportChannel.snapshot(call, result: result)
+        case "restoreSplatViewport":
+            SplatViewportChannel.restore(call, result: result)
+        case "saveSplatViewportEdits":
+            SplatViewportChannel.saveEdits(call, result: result)
+        default:
+            return false
+        }
+        return true
     }
 
     private func startPhotogrammetryFromImages(

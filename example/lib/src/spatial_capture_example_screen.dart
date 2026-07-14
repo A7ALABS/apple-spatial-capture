@@ -71,8 +71,7 @@ class _SpatialCaptureExampleScreenState
   Future<void> _loadAvailableDatasets() async {
     if (!_isAppleSpatialPlatform) return;
     try {
-      final datasets = await AppleSpatialCapture.platform
-          .listGaussianSplatDatasets();
+      final datasets = await AppleSpatialCapture.gaussianSplat.listDatasets();
       if (!mounted) return;
       setState(() {
         _availableDatasets = datasets;
@@ -194,12 +193,9 @@ class _SpatialCaptureExampleScreenState
     });
 
     try {
-      final dataset = await AppleSpatialCapture.platform
-          .startGaussianSplatCapture(
-            options: AppleGaussianSplatCaptureOptions(
-              format: _splatDatasetFormat,
-            ),
-          );
+      final dataset = await AppleSpatialCapture.gaussianSplat.capture(
+        options: AppleGaussianSplatCaptureOptions(format: _splatDatasetFormat),
+      );
       if (!mounted) return;
       if (dataset == null) {
         setState(() => _statusMessage = 'Capture cancelled.');
@@ -269,7 +265,7 @@ class _SpatialCaptureExampleScreenState
     });
 
     try {
-      final result = await AppleSpatialCapture.platform.trainGaussianSplat(
+      final result = await AppleSpatialCapture.gaussianSplat.train(
         datasetPath: datasetPath,
         operationId: operationId,
         options: AppleGaussianSplatTrainingOptions(
@@ -306,9 +302,7 @@ class _SpatialCaptureExampleScreenState
     }
 
     try {
-      await AppleSpatialCapture.platform.previewGaussianSplat(
-        datasetPath: datasetPath,
-      );
+      await AppleSpatialCapture.gaussianSplat.preview(datasetPath);
       if (!mounted) return;
       setState(() => _statusMessage = 'Splat preview opened.');
     } on AppleSpatialCaptureError catch (error) {
@@ -332,8 +326,7 @@ class _SpatialCaptureExampleScreenState
     });
 
     try {
-      final shared = await AppleSpatialCapture.platform
-          .shareGaussianSplatDataset(datasetPath: path);
+      final shared = await AppleSpatialCapture.gaussianSplat.shareDataset(path);
       if (!mounted) return;
       setState(() {
         _statusMessage = shared ? 'Dataset shared.' : 'Share sheet dismissed.';

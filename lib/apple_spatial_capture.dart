@@ -9,8 +9,14 @@ import 'package:flutter/services.dart';
 
 import 'src/apple_spatial_capture_channel.dart';
 import 'src/apple_spatial_capture_models.dart';
+import 'src/gaussian_splat.dart';
 
 export 'src/apple_spatial_capture_models.dart';
+export 'src/gaussian_splat.dart'
+    show
+        GaussianSplatApi,
+        AppleGaussianSplatViewport,
+        kGaussianSplatTrainingOperation;
 
 /// Flutter-facing library for Apple 3D capture and reconstruction features:
 /// RoomPlan, photogrammetry (Object Capture), LiDAR mesh scanning, and macOS
@@ -22,6 +28,14 @@ class AppleSpatialCapture {
 
   /// Current platform implementation used by the plugin.
   static AppleSpatialCapturePlatform get platform => _platform;
+
+  /// Cohesive entry point for the Gaussian-splatting workflow (capture,
+  /// train, preview, and the embedded editable viewport).
+  ///
+  /// This facade groups the splat-related operations that are otherwise
+  /// spread across [AppleSpatialCapturePlatform]; prefer it in app code. The
+  /// flat platform methods remain available for advanced use.
+  static GaussianSplatApi get gaussianSplat => GaussianSplatApi(_platform);
 
   /// Allows replacing platform impl in tests.
   static void setPlatform(AppleSpatialCapturePlatform value) {

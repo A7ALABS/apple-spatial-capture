@@ -108,6 +108,10 @@ import RoomPlan
     }
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        // Gaussian-splatting methods are routed together (see the router)
+        // so this dispatch stays focused on photogrammetry, LiDAR and RoomPlan.
+        if handleGaussianSplatMethod(call, result: result) { return }
+
         switch call.method {
 
         // --- Object Capture (photogrammetry, iOS 17+) ---
@@ -133,62 +137,6 @@ import RoomPlan
 
         case "startLiDARCapture":
             startLiDARCapture(result: result)
-
-        // --- Gaussian splat dataset capture (iOS 14+, ARKit world tracking) ---
-        case "isGaussianSplatCaptureSupported":
-            if #available(iOS 14.0, *) {
-                result(ARWorldTrackingConfiguration.isSupported)
-            } else {
-                result(false)
-            }
-
-        case "startGaussianSplatCapture":
-            startGaussianSplatCapture(call: call, result: result)
-
-        case "shareGaussianSplatDataset":
-            shareGaussianSplatDataset(call: call, result: result)
-
-        case "isGaussianSplatTrainingSupported":
-            result(GaussianSplatTraining.isSupported)
-
-        case "listGaussianSplatDatasets":
-            result(Self.listGaussianSplatDatasets())
-
-        case "trainGaussianSplat":
-            trainGaussianSplat(call: call, result: result)
-
-        case "cancelGaussianSplatTraining":
-            result(GaussianSplatTraining.requestCancel())
-
-        case "previewGaussianSplat":
-            previewGaussianSplat(call: call, result: result)
-
-        case "openSplatViewport":
-            SplatViewportChannel.open(call, result: result)
-
-        case "openSplatPlyViewport":
-            SplatViewportChannel.openPly(call, result: result)
-
-        case "renderSplatViewport":
-            SplatViewportChannel.render(call, result: result)
-
-        case "closeSplatViewport":
-            SplatViewportChannel.close(call, result: result)
-
-        case "cleanupSplatViewport":
-            SplatViewportChannel.cleanup(call, result: result)
-
-        case "cropSplatViewport":
-            SplatViewportChannel.crop(call, result: result)
-
-        case "snapshotSplatViewport":
-            SplatViewportChannel.snapshot(call, result: result)
-
-        case "restoreSplatViewport":
-            SplatViewportChannel.restore(call, result: result)
-
-        case "saveSplatViewportEdits":
-            SplatViewportChannel.saveEdits(call, result: result)
 
         case "previewCapturedModel":
             previewCapturedModel(call: call, result: result)
@@ -219,6 +167,62 @@ import RoomPlan
         default:
             result(FlutterMethodNotImplemented)
         }
+    }
+
+    // MARK: - Gaussian Splat routing
+
+    /// Routes every Gaussian-splatting method — dataset capture, training,
+    /// full-screen preview, and the embedded viewport channel — in one place,
+    /// so the main dispatch stays focused on photogrammetry, LiDAR and
+    /// RoomPlan. Returns true when `call` was a splat method and has been
+    /// answered via `result`.
+    private func handleGaussianSplatMethod(
+        _ call: FlutterMethodCall,
+        result: @escaping FlutterResult
+    ) -> Bool {
+        switch call.method {
+        case "isGaussianSplatCaptureSupported":
+            if #available(iOS 14.0, *) {
+                result(ARWorldTrackingConfiguration.isSupported)
+            } else {
+                result(false)
+            }
+        case "startGaussianSplatCapture":
+            startGaussianSplatCapture(call: call, result: result)
+        case "shareGaussianSplatDataset":
+            shareGaussianSplatDataset(call: call, result: result)
+        case "isGaussianSplatTrainingSupported":
+            result(GaussianSplatTraining.isSupported)
+        case "listGaussianSplatDatasets":
+            result(Self.listGaussianSplatDatasets())
+        case "trainGaussianSplat":
+            trainGaussianSplat(call: call, result: result)
+        case "cancelGaussianSplatTraining":
+            result(GaussianSplatTraining.requestCancel())
+        case "previewGaussianSplat":
+            previewGaussianSplat(call: call, result: result)
+        case "openSplatViewport":
+            SplatViewportChannel.open(call, result: result)
+        case "openSplatPlyViewport":
+            SplatViewportChannel.openPly(call, result: result)
+        case "renderSplatViewport":
+            SplatViewportChannel.render(call, result: result)
+        case "closeSplatViewport":
+            SplatViewportChannel.close(call, result: result)
+        case "cleanupSplatViewport":
+            SplatViewportChannel.cleanup(call, result: result)
+        case "cropSplatViewport":
+            SplatViewportChannel.crop(call, result: result)
+        case "snapshotSplatViewport":
+            SplatViewportChannel.snapshot(call, result: result)
+        case "restoreSplatViewport":
+            SplatViewportChannel.restore(call, result: result)
+        case "saveSplatViewportEdits":
+            SplatViewportChannel.saveEdits(call, result: result)
+        default:
+            return false
+        }
+        return true
     }
 
     // MARK: - Object Capture
