@@ -1,3 +1,7 @@
+## 0.3.1
+
+- Packaging only (no code changes): stop shipping build artifacts (a 43 MB compiler cache), tool caches, and unused full-resolution screenshots in the pub.dev archive, shrinking the download from ~54 MB to ~20 MB.
+
 ## 0.3.0
 
 - Added a cohesive `AppleSpatialCapture.gaussianSplat` facade (`GaussianSplatApi`) that groups the whole splat workflow — `capture`, `listDatasets`, `shareDataset`, `train`, `cancelTraining`, `trainingProgress`, `preview`, `openViewport`, `openPlyViewport` — instead of spreading ~17 methods across the platform interface. The embedded viewport is now a stateful `AppleGaussianSplatViewport` handle with instance methods (`renderFrame`, `crop`, `cleanup`, `snapshot`, `restore`, `saveEdits`, `close`) that tracks its own gaussian count, distinguishes editable dataset sessions from view-only `.ply` sessions (edit calls on a `.ply` throw `NOT_EDITABLE` rather than reaching native), stores its dataset path for `saveEdits`, and closes idempotently. The flat `AppleSpatialCapturePlatform` methods are unchanged for backward compatibility. Native dispatch for all splat methods is consolidated into a single router (`handleGaussianSplatMethod`) on each platform plugin.
