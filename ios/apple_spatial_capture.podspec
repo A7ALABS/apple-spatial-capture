@@ -17,6 +17,18 @@ helpers.
   s.platform         = :ios, '14.0'
   s.swift_version    = '5.0'
 
+  # Vendored msplat Gaussian-splatting training engine (Apache 2.0,
+  # https://github.com/rayanht/msplat) and its Metal shader library.
+  # iOS support is experimental — training is gated at runtime (iOS 16+).
+  s.vendored_frameworks = 'apple_spatial_capture/MsplatCore.xcframework'
+  s.resource_bundles = {
+    'apple_spatial_capture_msplat' => [
+      'apple_spatial_capture/Sources/apple_spatial_capture/Resources/*.metallib'
+    ]
+  }
+  s.frameworks       = 'Metal', 'MetalKit', 'MetalPerformanceShaders', 'ImageIO', 'CoreGraphics'
+  s.libraries        = 'c++'
+
   # RoomPlan and ObjectCapture require modern iOS SDKs.
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES'

@@ -8,6 +8,8 @@ The package exposes:
 - Photogrammetry reconstruction from existing image paths on supported iOS 17+, iPadOS 17+, and macOS 12+ devices.
 - LiDAR mesh scanning on supported iOS 14+ and iPadOS 14+ devices.
 - RoomPlan room scanning on supported iOS 16+ and iPadOS 16+ devices.
+- Gaussian splatting dataset capture (auto photos + camera poses + seed point cloud) on iOS 14+ and iPadOS 14+ devices.
+- On-device Gaussian splatting training (bundled msplat Metal engine) on Apple-silicon macOS 14+, experimental on iOS 16+.
 - Native previews for local and remote `usdz`, `obj`, `glb`, and `gltf` files.
 - Progress events for image-based photogrammetry jobs.
 
@@ -150,6 +152,29 @@ For macOS, set the deployment target to at least `12.0`. macOS supports reconstr
 
 Use `AppleSpatialCapture.platform` for all operations:
 
+For the Gaussian-splatting workflow specifically, prefer the cohesive
+`AppleSpatialCapture.gaussianSplat` facade, which groups capture, training,
+preview and the embedded editable viewport in one place (the flat platform
+methods remain available for advanced use):
+
+```dart
+final splat = AppleSpatialCapture.gaussianSplat;
+
+final dataset = await splat.capture();                  // AR capture flow
+final result  = await splat.train(datasetPath: dataset!.datasetPath);
+await splat.preview(dataset.datasetPath);               // full-screen viewer
+
+// Embedded, editable viewport (a stateful handle instead of a session id):
+final viewport = await splat.openViewport(dataset.datasetPath);
+final frame = await viewport.renderFrame(azimuth: 0.4); // JPEG bytes
+await viewport.crop(keepFraction: 0.8);
+await viewport.saveEdits();
+await viewport.close();
+```
+
+A `.ply` opened with `splat.openPlyViewport(...)` is view-only; calling an edit
+method on it throws instead of reaching the native layer.
+
 ```dart
 final capture = AppleSpatialCapture.platform;
 ```
@@ -160,8 +185,17 @@ Public components:
 | --- | --- |
 | `AppleSpatialCapture.platform` | Default platform implementation for method and event channels. |
 | `AppleSpatialCapturePlatform` | Interface used by the plugin and by tests/fakes. |
-| `AppleSpatialCaptureSupport` | Combined support result for photogrammetry, LiDAR, and RoomPlan. |
+| `AppleSpatialCaptureSupport` | Combined support result for photogrammetry, LiDAR, RoomPlan, and Gaussian splat capture. |
 | `ApplePhotogrammetryOptions` | Options for `startPhotogrammetryFromImages`. |
+| `AppleGaussianSplatCaptureOptions` | Options for `startGaussianSplatCapture`. |
+| `AppleGaussianSplatDatasetFormat` | Dataset layout enum: nerfstudio, COLMAP (LichtFeld Studio), or both. |
+| `AppleGaussianSplatDataset` | Dataset summary returned by `startGaussianSplatCapture`. |
+| `shareGaussianSplatDataset` | Zips a dataset and opens the share sheet (AirDrop, Files). |
+| `trainGaussianSplat` | Trains a splat on-device with the bundled msplat Metal engine. |
+| `previewGaussianSplat` | Interactive orbit viewer for a trained splat (msplat renderer). |
+| `listGaussianSplatDatasets` | Lists captured dataset folders on this device, newest first. |
+| `AppleGaussianSplatTrainingOptions` | Options for `trainGaussianSplat` (iterations, SH degree, downscale). |
+| `AppleGaussianSplatTrainingResult` | Result of `trainGaussianSplat` (splat path, gaussian count, timing). |
 | `AppleSpatialCaptureProgress` | Progress payload emitted during image-based photogrammetry. |
 | `AppleSpatialCaptureProgressStage` | Stage enum for progress events. |
 | `AppleSpatialCaptureFileType` | File type enum for model previews. |
@@ -519,6 +553,133 @@ Future<void> startRoomPlanScan(BuildContext context) async {
     _showMessage(context, error.message);
   }
 }
+```
+
+## Capture a Gaussian splatting dataset
+
+`startGaussianSplatCapture()` opens a full-screen AR capture flow in the style of mobile splat scanners (Scaniverse, RealityScan). Photos are captured automatically as the device moves — a new keyframe is taken whenever the camera translates or rotates past a threshold, with live guidance messages, a photo counter, and pose markers left at each shot.
+
+The flow assists the user toward training-usable photos:
+
+- **Locked camera settings** (`lockCameraSettings`, default on, iOS 16+): when recording starts, auto-exposure and white balance are allowed to converge and then locked, so every frame shares the same ISO, shutter speed, and color rendition — this noticeably reduces floaters and color patchiness in the trained splat. A `lockFocus` option additionally freezes focus for constant-distance scans. Settings are restored when the session ends.
+- **Motion-blur prediction**: before a keyframe is taken, expected blur is estimated from the actual exposure duration and the camera's angular/linear velocity; smeared frames are skipped with a "hold steadier" prompt and the same pose is retried.
+- **Measured sharpness check**: each candidate frame's Laplacian sharpness is compared against the scan's own recent baseline; outliers are rejected before they are written, and the counter shows how many frames were skipped.
+- **Exposure warnings**: too-dark scenes and clipped highlights raise transient on-screen notices.
+
+`AppleGaussianSplatDataset.rejectedImageCount` reports how many frames the quality checks discarded.
+
+The result is a training-ready dataset folder. The layout is selectable via `AppleGaussianSplatCaptureOptions.format`:
+
+```
+gs_dataset_<uuid>/
+  images/            # sensor-oriented JPEG keyframes (always written)
+  depth/             # optional 16-bit mm depth PNGs (LiDAR devices)
+  transforms.json    # nerfstudio format: per-frame ARKit poses + intrinsics
+  sparse_pc.ply      # colored seed point cloud from ARKit feature points
+  sparse/0/          # colmap format: cameras.txt, images.txt, points3D.txt
+```
+
+- `AppleGaussianSplatDatasetFormat.nerfstudio` (default) writes `transforms.json` + `sparse_pc.ply`.
+- `AppleGaussianSplatDatasetFormat.colmap` writes a COLMAP text model under `sparse/0/` for [LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio) and the reference 3DGS implementation.
+- `AppleGaussianSplatDatasetFormat.both` writes both layouts side by side.
+
+Because ARKit supplies the camera poses directly, no COLMAP/structure-from-motion step is needed. The folder trains as-is, for example:
+
+- [nerfstudio](https://docs.nerf.studio) — `ns-train splatfacto --data gs_dataset_<uuid>`
+- [Brush](https://github.com/ArthurBrussee/brush) — runs on Apple Silicon Macs (Metal), open the dataset folder directly
+- [LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio) — open the dataset folder (COLMAP layout) directly
+
+```dart
+Future<void> captureSplatDataset(BuildContext context) async {
+  try {
+    final isSupported =
+        await AppleSpatialCapture.platform.isGaussianSplatCaptureSupported();
+    if (!isSupported) {
+      _showMessage(context, 'Gaussian splat capture is not supported here.');
+      return;
+    }
+
+    final dataset = await AppleSpatialCapture.platform.startGaussianSplatCapture(
+      options: const AppleGaussianSplatCaptureOptions(
+        maxImages: 250,
+        translationThresholdMeters: 0.08,
+        rotationThresholdDegrees: 10,
+        includeDepthMaps: false,
+        jpegQuality: 0.85,
+        format: AppleGaussianSplatDatasetFormat.colmap, // LichtFeld Studio
+      ),
+    );
+    if (dataset == null) return; // user cancelled
+
+    _showMessage(
+      context,
+      'Captured ${dataset.imageCount} images and ${dataset.pointCount} seed '
+      'points at ${dataset.datasetPath}',
+    );
+  } on AppleSpatialCaptureError catch (error) {
+    _showMessage(context, error.message);
+  }
+}
+```
+
+Datasets are written to the app's `Documents/GaussianSplatDatasets/` folder, so they persist between launches.
+
+### Transfer the dataset to a computer
+
+`shareGaussianSplatDataset` zips the dataset folder and opens the system share sheet, so it can be AirDropped to a Mac, saved to iCloud Drive/Files, or handed to any installed app:
+
+```dart
+final shared = await AppleSpatialCapture.platform.shareGaussianSplatDataset(
+  datasetPath: dataset.datasetPath,
+);
+```
+
+Alternatively, add these keys to the host app's `Info.plist` and the datasets become directly visible in the Files app on device and in Finder (device sidebar → Files tab) over USB:
+
+```xml
+<key>UIFileSharingEnabled</key>
+<true/>
+<key>LSSupportsOpeningDocumentsInPlace</key>
+<true/>
+```
+
+The bundled example app enables both.
+
+### Train the splat on-device
+
+`trainGaussianSplat` runs true on-device 3D Gaussian Splatting training using the bundled [msplat](https://github.com/rayanht/msplat) engine (Apache 2.0) — fused Metal compute kernels, no Python, no CUDA, no cloud. It reads the dataset's nerfstudio `transforms.json` (capture with the `nerfstudio` or `both` format), initializes from the captured seed point cloud, and writes `splat.ply` into the dataset folder.
+
+```dart
+final result = await AppleSpatialCapture.platform.trainGaussianSplat(
+  datasetPath: dataset.datasetPath,
+  operationId: 'train_1',
+  options: const AppleGaussianSplatTrainingOptions(
+    iterations: 3000,       // 1000 fast preview … 7000 high quality
+    downscaleFactor: 1.0,   // use 2–4 on iPhone to reduce memory pressure
+  ),
+);
+print('${result.splatCount} gaussians -> ${result.splatPath}');
+```
+
+Progress streams on `progressStream` with operation `gaussian_splat_training` (fraction, ETA, gaussian count).
+
+Training can be stopped early with `cancelGaussianSplatTraining()` — the run exports what it has trained so far and resolves with `cancelled: true`. Starting a training run automatically closes any open embedded splat viewport sessions (two live engine instances exceed iPhone memory limits). Memory-planner failures throw with the stable error code `OUT_OF_MEMORY`. On long runs the trainer also caps gaussian growth to the memory left after images (densification is slowed and a hard ceiling stops the run before it can exhaust memory); when this happens the result's `hitGaussianLimit` is set and the splat is valid but less dense — train on a Mac for a fuller result.
+
+Support (`isGaussianSplatTrainingSupported`):
+
+- **macOS 14+ on Apple silicon** — the primary target; scenes train in seconds to a few minutes depending on iterations and image count.
+- **iOS 16+ with an A15/M-class GPU or newer — experimental.** The engine was written for desktop memory budgets, so the plugin plans each run against the process's actual memory headroom (`os_proc_available_memory`): it automatically raises the downscale factor (keeping the long image side ≥ ~480 px) and, if still needed, evenly subsamples frames (never below 30). The plan is reported as an `info` progress event and in the result's `cameraCount` / `totalImageCount` / `downscaleFactor`. Tips for phones: run detached from the Xcode debugger (debug tooling inflates memory), prefer 1000–3000 iterations, and capture moderate photo counts (~80–150).
+
+The trained `.ply` is a standard 3DGS splat viewable in any splat viewer (SuperSplat, MetalSplatter, PlayCanvas) and is included when sharing the dataset folder.
+
+### Preview the trained splat
+
+`previewGaussianSplat` opens an interactive viewer for a trained dataset — drag to orbit, pinch (iOS) or scroll (macOS) to zoom. It reuses the bundled msplat engine as the renderer, reloading the training checkpoint that `trainGaussianSplat` saves in the dataset folder (`saveCheckpoint` option, on by default; ~700 bytes per gaussian on disk). The orbit is centered automatically on the captured subject by triangulating the cameras' view rays.
+
+```dart
+await AppleSpatialCapture.platform.previewGaussianSplat(
+  datasetPath: dataset.datasetPath,
+);
 ```
 
 ## Preview a local model

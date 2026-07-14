@@ -7,6 +7,8 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
     private static let progressChannelName = "apple_spatial_capture/progress"
     private static let pipelineTotalSteps = 6
     private var progressEventSink: FlutterEventSink?
+    /// Keeps splat preview windows (and their delegates) alive until closed.
+    private var splatPreviewWindows: [SplatPreviewWindowContext] = []
 
     private enum OutputFormat {
         case usdz
@@ -105,6 +107,10 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
     }
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        // Gaussian-splatting methods are routed together (see the router)
+        // so this dispatch stays focused on photogrammetry and previews.
+        if handleGaussianSplatMethod(call, result: result) { return }
+
         switch call.method {
         case "isObjectCaptureSupported", "isSupported":
             if #available(macOS 12.0, *) {
@@ -149,6 +155,59 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
         default:
             result(FlutterMethodNotImplemented)
         }
+    }
+
+    // MARK: - Gaussian Splat routing
+
+    /// Routes every Gaussian-splatting method — training, full-screen
+    /// preview, and the embedded viewport channel — in one place. Capture and
+    /// sharing are iOS-only and report UNSUPPORTED here. Returns true when
+    /// `call` was a splat method and has been answered via `result`.
+    private func handleGaussianSplatMethod(
+        _ call: FlutterMethodCall,
+        result: @escaping FlutterResult
+    ) -> Bool {
+        switch call.method {
+        case "isGaussianSplatCaptureSupported":
+            result(false)
+        case "startGaussianSplatCapture", "shareGaussianSplatDataset":
+            result(FlutterError(
+                code: "UNSUPPORTED",
+                message: "Gaussian splat dataset capture is available on supported iOS and iPadOS devices.",
+                details: nil
+            ))
+        case "isGaussianSplatTrainingSupported":
+            result(GaussianSplatTraining.isSupported)
+        case "listGaussianSplatDatasets":
+            result(Self.listGaussianSplatDatasets())
+        case "trainGaussianSplat":
+            trainGaussianSplat(call: call, result: result)
+        case "cancelGaussianSplatTraining":
+            result(GaussianSplatTraining.requestCancel())
+        case "previewGaussianSplat":
+            previewGaussianSplat(call: call, result: result)
+        case "openSplatViewport":
+            SplatViewportChannel.open(call, result: result)
+        case "openSplatPlyViewport":
+            SplatViewportChannel.openPly(call, result: result)
+        case "renderSplatViewport":
+            SplatViewportChannel.render(call, result: result)
+        case "closeSplatViewport":
+            SplatViewportChannel.close(call, result: result)
+        case "cleanupSplatViewport":
+            SplatViewportChannel.cleanup(call, result: result)
+        case "cropSplatViewport":
+            SplatViewportChannel.crop(call, result: result)
+        case "snapshotSplatViewport":
+            SplatViewportChannel.snapshot(call, result: result)
+        case "restoreSplatViewport":
+            SplatViewportChannel.restore(call, result: result)
+        case "saveSplatViewportEdits":
+            SplatViewportChannel.saveEdits(call, result: result)
+        default:
+            return false
+        }
+        return true
     }
 
     private func startPhotogrammetryFromImages(
@@ -966,6 +1025,185 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
         return PipelineStepInfo(index: 4, label: "Reconstructing Geometry")
     }
 
+    /// Lists dataset folders under Documents/GaussianSplatDatasets, newest
+    /// first, so apps can offer a picker instead of a typed path.
+    static func listGaussianSplatDatasets() -> [String] {
+        guard let documentsURL = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return []
+        }
+        let rootURL = documentsURL.appendingPathComponent(
+            "GaussianSplatDatasets",
+            isDirectory: true
+        )
+        let keys: [URLResourceKey] = [.isDirectoryKey, .contentModificationDateKey]
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: rootURL,
+            includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        return contents
+            .compactMap { url -> (URL, Date)? in
+                guard
+                    let values = try? url.resourceValues(forKeys: Set(keys)),
+                    values.isDirectory == true
+                else { return nil }
+                return (url, values.contentModificationDate ?? .distantPast)
+            }
+            .sorted { $0.1 > $1.1 }
+            .map { $0.0.path }
+    }
+
+    /// Opens the interactive splat viewer window for a trained dataset
+    /// (renders the saved training checkpoint through the vendored msplat
+    /// engine).
+    private func previewGaussianSplat(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard
+            let args = call.arguments as? [String: Any],
+            let datasetPath = (args["datasetPath"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !datasetPath.isEmpty
+        else {
+            result(FlutterError(code: "INVALID_ARGS",
+                                message: "Missing dataset path.",
+                                details: nil))
+            return
+        }
+
+        #if canImport(MsplatCore)
+        guard #available(macOS 14.0, *), GaussianSplatPreview.isSupported else {
+            result(FlutterError(code: "UNSUPPORTED",
+                                message: "Gaussian splat preview requires an Apple-silicon Mac on macOS 14+.",
+                                details: nil))
+            return
+        }
+        if let validationError = GaussianSplatPreview.validatePreviewable(datasetPath: datasetPath) {
+            result(FlutterError(code: "NOT_PREVIEWABLE",
+                                message: validationError.localizedDescription,
+                                details: nil))
+            return
+        }
+
+        DispatchQueue.main.async {
+            let viewer = GaussianSplatPreviewViewController(datasetPath: datasetPath)
+            let window = NSWindow(contentViewController: viewer)
+            window.title = "Gaussian Splat Preview"
+            window.setContentSize(NSSize(width: 960, height: 720))
+            window.styleMask = [.titled, .closable, .resizable]
+            window.isReleasedWhenClosed = false
+            let delegate = SplatPreviewWindowDelegate(viewer: viewer) { [weak self] in
+                self?.splatPreviewWindows.removeAll { $0.window == window }
+            }
+            self.splatPreviewWindows.append(
+                SplatPreviewWindowContext(window: window, delegate: delegate)
+            )
+            window.delegate = delegate
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+            result(true)
+        }
+        #else
+        result(FlutterError(code: "UNSUPPORTED",
+                            message: "Gaussian splat preview is not available in this build of the plugin.",
+                            details: nil))
+        #endif
+    }
+
+    /// Trains a Gaussian splat from a captured dataset using the vendored
+    /// msplat Metal engine, streaming progress over the event channel.
+    private func trainGaussianSplat(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard
+            let args = call.arguments as? [String: Any],
+            let datasetPath = (args["datasetPath"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !datasetPath.isEmpty
+        else {
+            result(FlutterError(code: "INVALID_ARGS",
+                                message: "Missing dataset path.",
+                                details: nil))
+            return
+        }
+
+        guard GaussianSplatTraining.isSupported else {
+            result(FlutterError(code: "UNSUPPORTED",
+                                message: "Gaussian splat training requires an Apple-silicon Mac on macOS 14+.",
+                                details: nil))
+            return
+        }
+
+        let operationId = (args["operationId"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let options = GaussianSplatTrainingOptions.parse(
+            from: args["options"] as? [String: Any]
+        )
+
+        let startDate = Date()
+        emitProgress(
+            operationId: operationId,
+            stage: "preparing",
+            message: "Loading dataset for splat training...",
+            progress: 0.0,
+            operation: "gaussian_splat_training"
+        )
+
+        GaussianSplatTraining.train(
+            datasetPath: datasetPath,
+            options: options,
+            notice: { [weak self] message in
+                self?.emitProgress(
+                    operationId: operationId,
+                    stage: "info",
+                    message: message,
+                    operation: "gaussian_splat_training"
+                )
+            },
+            progress: { [weak self] update in
+                let fraction = Double(update.iteration) / Double(max(1, update.totalIterations))
+                let remaining = Double(update.totalIterations - update.iteration)
+                    * Double(update.msPerStep) / 1000.0
+                self?.emitProgress(
+                    operationId: operationId,
+                    stage: "processing",
+                    message: "Training splat: \(update.splatCount) gaussians",
+                    progress: fraction,
+                    etaSeconds: update.msPerStep > 0 ? Int(remaining.rounded()) : nil,
+                    elapsedSeconds: self?.elapsedSeconds(since: startDate),
+                    operation: "gaussian_splat_training"
+                )
+            },
+            completion: { [weak self] outcome in
+                DispatchQueue.main.async {
+                    switch outcome {
+                    case .success(let payload):
+                        self?.emitProgress(
+                            operationId: operationId,
+                            stage: "completed",
+                            message: "Splat training complete.",
+                            progress: 1.0,
+                            elapsedSeconds: self?.elapsedSeconds(since: startDate),
+                            operation: "gaussian_splat_training"
+                        )
+                        result(payload)
+                    case .failure(let error):
+                        self?.emitProgress(
+                            operationId: operationId,
+                            stage: "failed",
+                            message: error.localizedDescription,
+                            operation: "gaussian_splat_training"
+                        )
+                        let code = (error as NSError)
+                            .userInfo[GaussianSplatTraining.errorCodeKey] as? String
+                        result(FlutterError(code: code ?? "TRAINING_FAILED",
+                                            message: error.localizedDescription,
+                                            details: nil))
+                    }
+                }
+            }
+        )
+    }
+
     private func emitProgress(
         operationId: String?,
         stage: String,
@@ -974,13 +1212,14 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
         etaSeconds: Int? = nil,
         elapsedSeconds: Int? = nil,
         stepIndex: Int? = nil,
-        stepLabel: String? = nil
+        stepLabel: String? = nil,
+        operation: String = "photogrammetry_from_images"
     ) {
         NSLog("[AppleSpatialCapture][Photogrammetry] \(stage): \(message)")
         DispatchQueue.main.async {
             guard let sink = self.progressEventSink else { return }
             var payload: [String: Any] = [
-                "operation": "photogrammetry_from_images",
+                "operation": operation,
                 "stage": stage,
                 "message": message
             ]
@@ -1007,3 +1246,33 @@ public class AppleSpatialCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHa
         }
     }
 }
+
+/// Pairs a splat preview window with its delegate so both stay alive for the
+/// window's lifetime.
+final class SplatPreviewWindowContext {
+    let window: NSWindow
+    let delegate: NSObject
+
+    init(window: NSWindow, delegate: NSObject) {
+        self.window = window
+        self.delegate = delegate
+    }
+}
+
+#if canImport(MsplatCore)
+@available(macOS 14.0, *)
+final class SplatPreviewWindowDelegate: NSObject, NSWindowDelegate {
+    private let viewer: GaussianSplatPreviewViewController
+    private let onClose: () -> Void
+
+    init(viewer: GaussianSplatPreviewViewController, onClose: @escaping () -> Void) {
+        self.viewer = viewer
+        self.onClose = onClose
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        viewer.closeSession()
+        onClose()
+    }
+}
+#endif

@@ -15,6 +15,17 @@ existing image sets and native model preview helpers.
   s.platform         = :osx, '12.0'
   s.swift_version    = '5.0'
 
+  # Vendored msplat Gaussian-splatting training engine (Apache 2.0,
+  # https://github.com/rayanht/msplat) and its Metal shader library.
+  s.vendored_frameworks = 'apple_spatial_capture/MsplatCore.xcframework'
+  s.resource_bundles = {
+    'apple_spatial_capture_msplat' => [
+      'apple_spatial_capture/Sources/apple_spatial_capture/Resources/*.metallib'
+    ]
+  }
+  s.frameworks       = 'Metal', 'MetalKit', 'MetalPerformanceShaders', 'ImageIO', 'CoreGraphics'
+  s.libraries        = 'c++'
+
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES'
   }

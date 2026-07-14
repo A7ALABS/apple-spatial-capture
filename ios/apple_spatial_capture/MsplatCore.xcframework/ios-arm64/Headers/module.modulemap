@@ -1,0 +1,4 @@
+module MsplatCore {
+    header "msplat_c_api.h"
+    export *
+}

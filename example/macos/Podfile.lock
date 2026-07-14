@@ -19,7 +19,7 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral
 
 SPEC CHECKSUMS:
-  apple_spatial_capture: 7757d63281223f9dbb4005c1b458241e3068eb58
+  apple_spatial_capture: b42861f890f8a7b91253ba871ee8940f13c16a9f
   file_selector_macos: 9e9e068e90ebee155097d00e89ae91edb2374db7
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
 
