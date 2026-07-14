@@ -3,10 +3,12 @@
 # release.sh — cut a pub.dev release for apple_spatial_capture.
 #
 # Mirrors .github/workflows/release-apple-spatial-capture.yml locally:
-#   1. bumps the version in pubspec.yaml
+#   1. sets the version in pubspec.yaml (bump segment, --version, or --current)
 #   2. updates the dependency constraint in README.md and adds a CHANGELOG entry
-#   3. validates with `flutter pub publish --dry-run`
-#   4. commits, tags (apple_spatial_capture-v<version>) and pushes
+#   3. commits and tags (apple_spatial_capture-v<version>)
+#   4. validates the clean, committed tree with `flutter pub publish --dry-run`
+#   5. pushes (or publishes locally); on validation failure the commit + tag are
+#      rolled back so the working tree is left exactly as it started
 #
 # Pushing the tag triggers .github/workflows/publish-apple-spatial-capture.yml,
 # which publishes to pub.dev via trusted publishing (OIDC) — no local
@@ -16,10 +18,12 @@
 # Usage:
 #   scripts/release.sh [patch|minor|major] [options]
 #   scripts/release.sh --version 0.4.0 [options]
+#   scripts/release.sh --current [options]   # publish the version already in pubspec
 #
 # Options:
 #   --version <X.Y.Z>     Explicit version (overrides the bump segment).
-#   -m, --message <text>  CHANGELOG bullet for this release.
+#   --current             Release the version already in pubspec.yaml (no bump).
+#   -m, --message <text>  CHANGELOG bullet (only used when a section is added).
 #   --local-publish       Publish from this machine (flutter pub publish --force)
 #                         instead of relying on the tag-triggered CI workflow.
 #   --no-push             Create the commit + tag but do not push (no release).
@@ -48,6 +52,7 @@ usage() {
 
 SEGMENT="patch"
 EXPLICIT_VERSION=""
+USE_CURRENT=0
 MESSAGE=""
 LOCAL_PUBLISH=0
 NO_PUSH=0
@@ -59,6 +64,7 @@ while [ $# -gt 0 ]; do
     patch|minor|major) SEGMENT="$1" ;;
     --version) EXPLICIT_VERSION="${2:-}"; shift ;;
     --version=*) EXPLICIT_VERSION="${1#*=}" ;;
+    --current) USE_CURRENT=1 ;;
     -m|--message) MESSAGE="${2:-}"; shift ;;
     --message=*) MESSAGE="${1#*=}" ;;
     --local-publish) LOCAL_PUBLISH=1 ;;
@@ -104,7 +110,10 @@ bump_version() {
   printf '%s.%s.%s\n' "$major" "$minor" "$patch"
 }
 
-if [ -n "$EXPLICIT_VERSION" ]; then
+if [ "$USE_CURRENT" -eq 1 ]; then
+  [ -z "$EXPLICIT_VERSION" ] || die "--current cannot be combined with --version."
+  NEXT_VERSION="$CURRENT_VERSION"
+elif [ -n "$EXPLICIT_VERSION" ]; then
   NEXT_VERSION="$EXPLICIT_VERSION"
 else
   NEXT_VERSION="$(bump_version "$CURRENT_VERSION" "$SEGMENT")"
@@ -181,20 +190,34 @@ if [ "$ASSUME_YES" -eq 0 ]; then
   esac
 fi
 
-# --- edit files (revert on failure until committed) ------------------------
+# --- edit files ------------------------------------------------------------
+#
+# We edit, then COMMIT, then validate on the clean committed tree. pub.dev
+# refuses to publish (and warns on --dry-run) when tracked files are modified,
+# so validating before committing would always trip that check. PHASE drives
+# the rollback in cleanup(): "edited" restores files from backup; "committed"
+# hard-resets the commit and deletes the tag.
 
 BACKUP_DIR="$(mktemp -d)"
-FILES_EDITED=0
-COMMITTED=0
+PHASE="start"      # start -> edited -> committed -> done
+PREV_HEAD="$(git rev-parse HEAD)"
+MADE_COMMIT=0
 
 cleanup() {
   local ec=$?
-  if [ "$COMMITTED" -eq 0 ] && [ "$FILES_EDITED" -eq 1 ]; then
-    for f in pubspec.yaml README.md CHANGELOG.md; do
-      [ -f "$BACKUP_DIR/$f" ] && cp "$BACKUP_DIR/$f" "$f"
-    done
-    [ "$ec" -ne 0 ] && warn "reverted working-tree changes."
-  fi
+  case "$PHASE" in
+    edited)
+      for f in pubspec.yaml README.md CHANGELOG.md; do
+        [ -f "$BACKUP_DIR/$f" ] && cp "$BACKUP_DIR/$f" "$f"
+      done
+      [ "$ec" -ne 0 ] && warn "reverted working-tree changes."
+      ;;
+    committed)
+      git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null && git tag -d "$TAG" >/dev/null
+      [ "$MADE_COMMIT" -eq 1 ] && git reset --hard "$PREV_HEAD" >/dev/null
+      [ "$ec" -ne 0 ] && warn "rolled back the release commit and tag."
+      ;;
+  esac
   rm -rf "$BACKUP_DIR"
 }
 trap cleanup EXIT
@@ -202,9 +225,9 @@ trap cleanup EXIT
 for f in pubspec.yaml README.md CHANGELOG.md; do
   [ -f "$f" ] && cp "$f" "$BACKUP_DIR/$f"
 done
-FILES_EDITED=1
+PHASE="edited"
 
-info "Updating pubspec.yaml"
+info "Setting version ${NEXT_VERSION} in pubspec.yaml"
 perl -0pi -e "s/^version:\\s*\\S+/version: ${NEXT_VERSION}/m" pubspec.yaml
 
 if [ -f README.md ]; then
@@ -223,23 +246,36 @@ if [ -f CHANGELOG.md ]; then
   fi
 fi
 
-# --- validate --------------------------------------------------------------
-
 info "flutter pub get"
 flutter pub get
 
-info "flutter pub publish --dry-run"
-flutter pub publish --dry-run
-
 # --- commit + tag ----------------------------------------------------------
 
-info "Committing and tagging ${TAG}"
-git add pubspec.yaml CHANGELOG.md
+git add pubspec.yaml
 [ -f README.md ] && git add README.md
+[ -f CHANGELOG.md ] && git add CHANGELOG.md
+[ -f pubspec.lock ] && git add pubspec.lock   # pub get may refresh it
 
-git commit -m "chore(${PACKAGE}): release v${NEXT_VERSION}"
+if git diff --cached --quiet; then
+  info "No file changes needed — tagging current HEAD as ${TAG}"
+else
+  info "Committing release v${NEXT_VERSION}"
+  git commit -m "chore(${PACKAGE}): release v${NEXT_VERSION}"
+  MADE_COMMIT=1
+fi
+
 git tag -a "$TAG" -m "${PACKAGE} v${NEXT_VERSION}"
-COMMITTED=1
+PHASE="committed"
+
+# --- validate (clean, committed tree) --------------------------------------
+
+info "flutter pub publish --dry-run"
+if ! flutter pub publish --dry-run; then
+  die "package validation failed — see the output above. Nothing was published."
+fi
+
+# Validation passed: from here on we keep the commit + tag.
+PHASE="done"
 
 # --- publish / push --------------------------------------------------------
 
