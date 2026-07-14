@@ -1,6 +1,6 @@
 name: apple_spatial_capture
 description: Flutter plugin exposing Apple RoomPlan, photogrammetry Object Capture, LiDAR scanning, macOS reconstruction and Gaussian splatting on metal.
-version: 0.3.1
+version: 0.3.2
 homepage: https://github.com/A7ALABS/apple-spatial-capture
 repository: https://github.com/A7ALABS/apple-spatial-capture
 issue_tracker: https://github.com/A7ALABS/apple-spatial-capture/issues

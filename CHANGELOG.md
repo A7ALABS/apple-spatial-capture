@@ -1,3 +1,7 @@
+## 0.3.2
+
+- Release maintenance updates.
+
 ## 0.3.1
 
 - Packaging only (no code changes): stop shipping build artifacts (a 43 MB compiler cache), tool caches, and unused full-resolution screenshots in the pub.dev archive, shrinking the download from ~54 MB to ~20 MB.
