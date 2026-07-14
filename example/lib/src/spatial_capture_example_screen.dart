@@ -25,6 +25,8 @@ class _SpatialCaptureExampleScreenState
   final TextEditingController _remoteUrlController = TextEditingController();
   final TextEditingController _remoteFileNameController =
       TextEditingController();
+  final TextEditingController _trainDatasetPathController =
+      TextEditingController();
 
   AppleSpatialCaptureSupport? _support;
   AppleSpatialCaptureFileType _remoteFileType =
@@ -38,12 +40,19 @@ class _SpatialCaptureExampleScreenState
   ApplePhotogrammetryFeatureSensitivity _photoFeatureSensitivity =
       ApplePhotogrammetryFeatureSensitivity.normal;
   bool _useObjectMasking = false;
+  AppleGaussianSplatDatasetFormat _splatDatasetFormat =
+      AppleGaussianSplatDatasetFormat.nerfstudio;
 
   StreamSubscription<AppleSpatialCaptureProgress>? _progressSubscription;
   Timer? _elapsedTimer;
   DateTime? _operationStartedAt;
   String? _activeOperationId;
   String? _lastModelPath;
+  String? _lastDatasetSummary;
+  String? _lastDatasetPath;
+  String? _lastTrainingSummary;
+  int _trainingIterations = 3000;
+  List<String> _availableDatasets = const [];
   String? _errorMessage;
   String _statusMessage = 'Checking device support...';
   bool _isCheckingSupport = true;
@@ -56,6 +65,26 @@ class _SpatialCaptureExampleScreenState
   void initState() {
     super.initState();
     _loadSupport();
+    _loadAvailableDatasets();
+  }
+
+  Future<void> _loadAvailableDatasets() async {
+    if (!_isAppleSpatialPlatform) return;
+    try {
+      final datasets = await AppleSpatialCapture.platform
+          .listGaussianSplatDatasets();
+      if (!mounted) return;
+      setState(() {
+        _availableDatasets = datasets;
+        if (_trainDatasetPathController.text.trim().isEmpty &&
+            datasets.isNotEmpty) {
+          _trainDatasetPathController.text = datasets.first;
+        }
+      });
+    } catch (_) {
+      // Older native builds without the listing method; the text field
+      // remains usable.
+    }
   }
 
   @override
@@ -65,6 +94,7 @@ class _SpatialCaptureExampleScreenState
     _localPathController.dispose();
     _remoteUrlController.dispose();
     _remoteFileNameController.dispose();
+    _trainDatasetPathController.dispose();
     super.dispose();
   }
 
@@ -143,6 +173,180 @@ class _SpatialCaptureExampleScreenState
       statusMessage: 'Opening RoomPlan scanner...',
       startCapture: AppleSpatialCapture.platform.startRoomPlanCapture,
     );
+  }
+
+  Future<void> _startGaussianSplatCapture() async {
+    if (!Platform.isIOS) {
+      _setError('Gaussian splat capture requires a supported iPhone or iPad.');
+      return;
+    }
+    if (!_ensureSupported(_support?.gaussianSplat, 'Gaussian splat capture')) {
+      return;
+    }
+
+    setState(() {
+      _isWorking = true;
+      _errorMessage = null;
+      _progress = null;
+      _elapsedSeconds = null;
+      _statusMessage = 'Opening Gaussian splat capture...';
+      _progressLog.clear();
+    });
+
+    try {
+      final dataset = await AppleSpatialCapture.platform
+          .startGaussianSplatCapture(
+            options: AppleGaussianSplatCaptureOptions(
+              format: _splatDatasetFormat,
+            ),
+          );
+      if (!mounted) return;
+      if (dataset == null) {
+        setState(() => _statusMessage = 'Capture cancelled.');
+        return;
+      }
+
+      final layouts = <String>[
+        if (dataset.transformsPath != null) 'transforms.json',
+        if (dataset.colmapPath != null) 'COLMAP sparse/0',
+      ].join(' + ');
+      final rejectedNote = dataset.rejectedImageCount > 0
+          ? ', ${dataset.rejectedImageCount} blurry skipped'
+          : '';
+      setState(() {
+        _lastDatasetSummary =
+            '${dataset.imageCount} images$rejectedNote, '
+            '${dataset.pointCount} seed points ($layouts)\n'
+            '${dataset.datasetPath}';
+        _lastDatasetPath = dataset.datasetPath;
+        _trainDatasetPathController.text = dataset.datasetPath;
+        _statusMessage =
+            'Dataset captured: ${dataset.imageCount} images ready for training.';
+      });
+      await _loadAvailableDatasets();
+    } on AppleSpatialCaptureError catch (error) {
+      _setError(error.message);
+    } catch (error) {
+      _setError('Gaussian splat capture failed: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _isWorking = false);
+      }
+    }
+  }
+
+  Future<void> _trainGaussianSplat() async {
+    final datasetPath = _trainDatasetPathController.text.trim();
+    if (datasetPath.isEmpty) {
+      _setError('Enter a dataset folder path (capture one first on iPhone).');
+      return;
+    }
+    if (!_ensureSupported(
+      _support?.gaussianSplatTraining,
+      'Gaussian splat training',
+    )) {
+      return;
+    }
+
+    final operationId = 'train_${DateTime.now().microsecondsSinceEpoch}';
+    _activeOperationId = operationId;
+    _startElapsedTimer();
+    await _progressSubscription?.cancel();
+    _progressSubscription = AppleSpatialCapture.platform.progressStream.listen(
+      _handleProgressEvent,
+      onError: (Object error) => _appendProgressLog('Progress error: $error'),
+    );
+
+    setState(() {
+      _isWorking = true;
+      _errorMessage = null;
+      _progress = null;
+      _lastTrainingSummary = null;
+      _statusMessage = 'Training Gaussian splat...';
+      _progressLog
+        ..clear()
+        ..add('Starting on-device splat training...');
+    });
+
+    try {
+      final result = await AppleSpatialCapture.platform.trainGaussianSplat(
+        datasetPath: datasetPath,
+        operationId: operationId,
+        options: AppleGaussianSplatTrainingOptions(
+          iterations: _trainingIterations,
+        ),
+      );
+      if (!mounted) return;
+      setState(() {
+        _lastTrainingSummary =
+            '${result.splatCount} gaussians from ${result.cameraCount} views '
+            'in ${_formatDuration(result.elapsedSeconds)}\n${result.splatPath}';
+        _statusMessage = 'Splat trained: ${result.splatPath}';
+      });
+    } on AppleSpatialCaptureError catch (error) {
+      _setError(error.message);
+    } catch (error) {
+      _setError('Training failed: $error');
+    } finally {
+      await _progressSubscription?.cancel();
+      _progressSubscription = null;
+      _activeOperationId = null;
+      _stopElapsedTimer();
+      if (mounted) {
+        setState(() => _isWorking = false);
+      }
+    }
+  }
+
+  Future<void> _previewTrainedSplat() async {
+    final datasetPath = _trainDatasetPathController.text.trim();
+    if (datasetPath.isEmpty) {
+      _setError('Select or enter a dataset folder path first.');
+      return;
+    }
+
+    try {
+      await AppleSpatialCapture.platform.previewGaussianSplat(
+        datasetPath: datasetPath,
+      );
+      if (!mounted) return;
+      setState(() => _statusMessage = 'Splat preview opened.');
+    } on AppleSpatialCaptureError catch (error) {
+      _setError(error.message);
+    } catch (error) {
+      _setError('Could not preview splat: $error');
+    }
+  }
+
+  Future<void> _shareLastDataset() async {
+    final path = _lastDatasetPath;
+    if (path == null || path.isEmpty) {
+      _setError('Capture a Gaussian splat dataset first.');
+      return;
+    }
+
+    setState(() {
+      _isWorking = true;
+      _errorMessage = null;
+      _statusMessage = 'Preparing dataset archive...';
+    });
+
+    try {
+      final shared = await AppleSpatialCapture.platform
+          .shareGaussianSplatDataset(datasetPath: path);
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = shared ? 'Dataset shared.' : 'Share sheet dismissed.';
+      });
+    } on AppleSpatialCaptureError catch (error) {
+      _setError(error.message);
+    } catch (error) {
+      _setError('Could not share dataset: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _isWorking = false);
+      }
+    }
   }
 
   Future<void> _startPhotoReconstruction() async {
@@ -479,7 +683,12 @@ class _SpatialCaptureExampleScreenState
           actions: [
             IconButton(
               tooltip: 'Refresh support',
-              onPressed: _isWorking ? null : _loadSupport,
+              onPressed: _isWorking
+                  ? null
+                  : () {
+                      _loadSupport();
+                      _loadAvailableDatasets();
+                    },
               icon: const Icon(Icons.refresh_rounded),
             ),
           ],
@@ -514,9 +723,32 @@ class _SpatialCaptureExampleScreenState
                       isWorking: _isWorking,
                       supportsDeviceCapture: Platform.isIOS,
                       lastModelPath: _lastModelPath,
+                      lastDatasetSummary: _lastDatasetSummary,
+                      splatDatasetFormat: _splatDatasetFormat,
+                      onSplatDatasetFormatChanged: (value) {
+                        setState(() => _splatDatasetFormat = value);
+                      },
+                      trainDatasetPathController: _trainDatasetPathController,
+                      availableDatasetPaths: _availableDatasets,
+                      onDatasetSelected: (path) {
+                        setState(() {
+                          _trainDatasetPathController.text = path;
+                        });
+                      },
+                      trainingIterations: _trainingIterations,
+                      onTrainingIterationsChanged: (value) {
+                        setState(() => _trainingIterations = value);
+                      },
+                      onTrainGaussianSplat: _trainGaussianSplat,
+                      onPreviewSplat: _previewTrainedSplat,
+                      lastTrainingSummary: _lastTrainingSummary,
                       onStartObjectCapture: _startGuidedObjectCapture,
                       onStartLiDARCapture: _startLiDARCapture,
                       onStartRoomPlanCapture: _startRoomPlanCapture,
+                      onStartGaussianSplatCapture: _startGaussianSplatCapture,
+                      onShareDataset: _lastDatasetPath == null
+                          ? null
+                          : _shareLastDataset,
                       onPreviewLastModel: _previewLastModel,
                     ),
                     PhotosTab(
