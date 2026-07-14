@@ -25,7 +25,7 @@ Or add it manually to your app's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  apple_spatial_capture: ^0.2.0
+  apple_spatial_capture: ^0.3.0
 ```
 
 Then fetch dependencies:
