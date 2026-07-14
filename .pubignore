@@ -1,2 +1,8 @@
+# pub uses this file (in preference to .gitignore) to decide what to publish.
+# Keep build artifacts, tool caches, and OS cruft out of the published archive.
 .DS_Store
 **/.DS_Store
+.dart_tool/
+build/
+**/build/
+ios/apple_spatial_capture/.build
